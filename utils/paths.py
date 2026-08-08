@@ -34,7 +34,7 @@ import os
 import sys
 from pathlib import Path
 
-from log import get_logger
+from utils.log import get_logger
 
 logger = get_logger(
     name="paths",
