@@ -105,7 +105,7 @@ class NotificationManager:
             shadow=ft.BoxShadow(
                 spread_radius=1,
                 blur_radius=10,
-                color=ft.Colors.BLACK26,
+                color=ft.Colors.BLACK_26,
             )
         )
         

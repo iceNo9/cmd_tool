@@ -21,7 +21,9 @@ class ParameterPanel:
     根据 Parameter.type 动态创建对应的输入控件。
     """
 
-    def __init__(self, state: AppState, state_service: StateService):
+    def __init__(
+        self, state: AppState, state_service: StateService, on_command_changed=None
+    ):
 
         # app状态
         self.state = state
@@ -32,13 +34,16 @@ class ParameterPanel:
         # 服务
         self.state_service = state_service
 
+        # 命令更新回调
+        self.on_command_changed = on_command_changed
+
         # 文件选择器
         self.file_picker = ft.FilePicker()
 
         self.list_view = ft.ListView(
             expand=True,
             spacing=1,
-            padding=5,
+            padding=1,
         )
 
         self.view = ft.Container(
@@ -52,10 +57,10 @@ class ParameterPanel:
                     self.list_view,
                 ],
                 expand=True,
-                spacing=5,
+                spacing=1,
             ),
-            padding=5,
-            margin=5,
+            padding=1,
+            margin=1,
             border=ft.Border.all(
                 1,
                 ft.Colors.GREY_400,
@@ -130,12 +135,37 @@ class ParameterPanel:
         tool_state.mark_clean()
 
     def _update_state(self, param_id: str, value: object):
-        """更新 ToolState 中的参数值"""
+        """更新 ToolState，并触发状态保存和命令更新。"""
+
         tool_state = self.state.get_current_state()
-        if tool_state != None:
-            tool_state.set(param_id, value)
-            self.state_service.auto_save(self.state)
-            logger.debug(f"参数值更新 id: {param_id} value: {value}")
+
+        if tool_state is None:
+            return
+
+        # ================================================================
+        # 1. 更新 ToolState
+        # ================================================================
+
+        tool_state.set(param_id, value)
+
+        logger.debug(
+            "参数值更新: id=%s value=%r",
+            param_id,
+            value,
+        )
+
+        # ================================================================
+        # 2. 自动保存状态
+        # ================================================================
+
+        self.state_service.auto_save(self.state)
+
+        # ================================================================
+        # 3. 通知外部重新生成命令
+        # ================================================================
+
+        if self.on_command_changed is not None:
+            self.on_command_changed()
 
     def _build_parameter(self, parameter: Parameter) -> ft.Control | None:
         """根据 Parameter.type 创建输入控件。"""
@@ -315,9 +345,7 @@ class ParameterPanel:
 
         def on_checkbox_change(e: ft.Event[ft.Checkbox]):
             selected_values = [
-                checkbox.label
-                for checkbox in checkboxes
-                if checkbox.value
+                checkbox.label for checkbox in checkboxes if checkbox.value
             ]
 
             self._update_state(

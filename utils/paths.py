@@ -52,12 +52,12 @@ logger = get_logger(
 
 def get_app_root() -> Path:
     """
-    获取应用根目录
+    获取应用根目录。
 
     优先级：
         1. 环境变量 CMD_TOOLS_HOME
         2. PyInstaller 打包路径（sys.executable 所在目录）
-        3. 当前工作目录
+        3. 开发环境源码路径（utils/paths.py 的上级目录）
 
     Returns:
         Path: 应用根目录
@@ -66,33 +66,71 @@ def get_app_root() -> Path:
         >>> root = get_app_root()
         >>> print(root)  # /path/to/cmd_tools
     """
+
+    # ================================================================
     # 1. 环境变量
+    # ================================================================
+
     env_home = os.getenv("CMD_TOOLS_HOME")
+
     if env_home:
         path = Path(env_home).resolve()
-        logger.debug(f"应用根目录（环境变量）: {path}")
+
+        logger.debug(
+            f"应用根目录（环境变量）: {path}"
+        )
+
         return path
 
+    # ================================================================
     # 2. 打包环境
+    #
+    # PyInstaller 等打包环境下：
+    #
+    #     sys.executable
+    #         ↓
+    #     CMDTools.exe
+    #
+    # 应用根目录就是 exe 所在目录。
+    # ================================================================
+
     if getattr(sys, "frozen", False):
         path = Path(sys.executable).parent.resolve()
-        logger.debug(f"应用根目录（打包环境）: {path}")
+
+        logger.debug(
+            f"应用根目录（打包环境）: {path}"
+        )
+
         return path
 
+    # ================================================================
     # 3. 开发环境
-    path = Path.cwd().resolve()
-    logger.debug(f"应用根目录（开发环境）: {path}")
+    #
+    # 不再使用 Path.cwd()。
+    #
+    # Flet run 运行时可能改变当前工作目录，例如：
+    #
+    #     .flet/storage/data
+    #
+    # 如果使用 Path.cwd()，就会错误地得到：
+    #
+    #     .flet/storage/data
+    #
+    # 因此开发环境直接根据当前源码文件的位置确定项目根目录。
+    #
+    # utils/paths.py
+    #       ↑
+    #       parent       -> utils
+    #       parent       -> cmd_tool
+    # ================================================================
+
+    path = Path(__file__).resolve().parent.parent
+
+    logger.debug(
+        f"应用根目录（开发环境）: {path}"
+    )
+
     return path
-
-
-def is_frozen() -> bool:
-    """
-    判断是否为打包环境
-
-    Returns:
-        bool: True 表示打包环境（PyInstaller/py2exe/cx_Freeze）
-    """
-    return getattr(sys, "frozen", False)
 
 
 # ============================================================================

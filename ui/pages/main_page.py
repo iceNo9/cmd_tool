@@ -4,6 +4,7 @@ from models.state import AppState
 from services.manifest_parser_service import parse_manifests
 from services.plugin_loader_service import discover_plugins
 from services.state_service import StateService
+from services.command_builder_service import CommandBuilderService
 from ui.components.project.info_panel import InfoPanel
 from ui.components.project.output_panel import OutputPanel
 from ui.components.project.parameter_panel import ParameterPanel
@@ -38,6 +39,8 @@ def build_main_page(page: ft.Page) -> None:
     state_service = StateService()
     state_service.load(state)
 
+    command_builder = CommandBuilderService()
+
     # ====================================================================
     # 创建通知管理器
     # ====================================================================
@@ -54,12 +57,42 @@ def build_main_page(page: ft.Page) -> None:
         para_panel.refresh()
         output_panel.refresh()
 
+    # 工具选择面板
     tool_panel = ToolPanel(
         state,
         on_tool_selected=on_tool_selected,
     )
+    # 工具信息面板
     info_panel = InfoPanel(state)
-    para_panel = ParameterPanel(state, state_service)
+
+    def on_parameter_changed():
+        """参数发生变化后重新生成命令。"""
+
+        manifest = state.get_selected_manifest()
+        tool_state = state.get_current_state()
+
+        if manifest is None or tool_state is None:
+            output_panel.set_text("")
+            return
+
+        try:
+            command = command_builder.build(
+                manifest,
+                tool_state,
+            )
+
+            output_panel.set_text(command)
+
+        except ValueError as e:
+            # 当前参数还没满足 required 条件时，
+            # 暂时不生成命令。
+            output_panel.set_text(f"参数错误: {e}")
+
+    # 工具参数详细面板
+    para_panel = ParameterPanel(
+        state, state_service, on_command_changed=on_parameter_changed
+    )
+    # 命令输出面板
     output_panel = OutputPanel(state, ntf)
 
     # ====================================================================
@@ -86,14 +119,14 @@ def build_main_page(page: ft.Page) -> None:
                 padding=5,
             ),
             ft.Container(
-                content=output_panel.build(),                
+                content=output_panel.build(),
                 # expand=True,
                 padding=5,
                 height=200,
             ),
         ],
         expand=True,
-        spacing=5,
+        spacing=1,
         alignment=ft.MainAxisAlignment.CENTER,
     )
 

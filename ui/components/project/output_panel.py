@@ -18,10 +18,12 @@ class OutputPanel:
     ):
         self.state = state
         self.ntf = ntf
+        self.clipboard = ft.Clipboard()
 
         self.output_text = ft.Text(
             value="",
             expand=True,
+            align=ft.Alignment.TOP_LEFT,
         )
 
         self.output_button = ft.TextButton(
@@ -83,14 +85,14 @@ class OutputPanel:
         async def copy_and_verify():
             try:
                 # 复制到剪贴板
-                await self.view.page.clipboard.set(text)
+                await self.clipboard.set(text)
 
                 # 短暂延迟，确保剪贴板更新完成
                 await asyncio.sleep(0.1)
 
                 # 验证剪贴板内容
                 try:
-                    clipboard_text = await self.view.page.clipboard.get()
+                    clipboard_text = await self.clipboard.get()
                     if clipboard_text == text:
                         self.ntf.show("已复制到剪切板", type="success")
                     else:
