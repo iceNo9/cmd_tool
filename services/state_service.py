@@ -276,19 +276,28 @@ class StateService:
                 tool_id = data["selected_tool_id"]
 
                 logger.debug(
-                    "恢复选中工具: tool_id=%s",
+                    "尝试恢复选中工具: tool_id=%s",
                     tool_id,
                 )
 
-                if app_state.get_manifest(tool_id) is None:
-                    raise ValueError(f"状态文件中的工具不存在: tool_id={tool_id}")
+                # --------------------------------------------------------
+                # 持久化的工具仍然存在
+                # --------------------------------------------------------
 
-                app_state.selected_tool_id = tool_id
+                if tool_id is not None and app_state.get_manifest(tool_id) is not None:
+                    app_state.selected_tool_id = tool_id
 
-                logger.info(
-                    "恢复选中工具成功: tool_id=%s",
-                    tool_id,
-                )
+                    logger.info(
+                        "恢复选中工具成功: tool_id=%s",
+                        tool_id,
+                    )
+
+                # --------------------------------------------------------
+                # 持久化的工具已经不存在
+                # --------------------------------------------------------
+
+                else:
+                    app_state.selected_tool_id = None
 
             # ------------------------------------------------------------
             # 恢复搜索关键词
@@ -317,11 +326,16 @@ class StateService:
                 for tool_id, state_data in tool_states.items():
 
                     # ----------------------------------------------------
-                    # 检查工具是否存在
+                    # 当前工具不存在
                     # ----------------------------------------------------
 
                     if tool_id not in app_state.tool_states:
-                        raise ValueError(f"状态文件中的工具不存在: tool_id={tool_id}")
+                        logger.warning(
+                            "持久化工具状态对应的工具已不存在，跳过恢复: "
+                            "tool_id=%s",
+                            tool_id,
+                        )
+                        continue
 
                     logger.debug(
                         "开始恢复工具状态: tool_id=%s",
@@ -352,7 +366,7 @@ class StateService:
                         )
 
                     # ----------------------------------------------------
-                    # 恢复完整 ToolState
+                    # 恢复工具状态
                     # ----------------------------------------------------
 
                     app_state.tool_states[tool_id] = loaded_state
