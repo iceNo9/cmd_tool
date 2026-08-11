@@ -550,3 +550,39 @@ def parse_manifest(path: str | Path) -> Manifest:
     logger.info(f"便捷函数 parse_manifest 被调用，路径: {path}")
     parser = ManifestParser()
     return parser.parse(path)
+
+
+def parse_manifests(paths: list[str | Path]) -> list[Manifest]:
+    """
+    便捷函数：批量解析 manifest 文件
+
+    Args:
+        paths: manifest 文件路径列表
+
+    Returns:
+        list[Manifest]: 解析后的清单对象列表
+
+    Example:
+        >>> manifests = parse_manifests([
+        ...     "plugin1/manifest.yml",
+        ...     "plugin2/manifest.yml"
+        ... ])
+    """
+    logger.info(f"便捷函数 parse_manifests 被调用，路径数量: {len(paths)}")
+    parser = ManifestParser()
+    manifests = []
+
+    for path in paths:
+        try:
+            manifest = parser.parse(path)
+            manifests.append(manifest)
+            logger.debug(f"成功解析: {path}")
+        except Exception as e:
+            logger.error(f"解析失败: {path}, 错误: {e}")
+            # 可以选择继续处理其他文件或重新抛出异常
+            # 这里选择继续处理，但记录错误
+            # 如果需要严格模式，可以取消下面的注释
+            # raise
+
+    logger.info(f"批量解析完成，成功: {len(manifests)}/{len(paths)}")
+    return manifests

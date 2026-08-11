@@ -1,12 +1,6 @@
-def main():
-    print("Hello from cmd-tool!")
+import flet as ft
 
-    from services.plugin_loader_service import discover_plugins
-
-    plugins = discover_plugins()
-    for plugin in plugins:
-        print(f"发现插件: {plugin}")
-        
+from ui.pages.main_page import main
 
 if __name__ == "__main__":
-    main()
+    ft.run(main)
