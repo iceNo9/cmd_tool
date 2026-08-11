@@ -9,7 +9,7 @@ from utils.paths import get_log_dir
 # 创建该模块专用的日志记录器
 logger = get_logger(
     name="parameter_panel",
-	log_dir=get_log_dir() / "logs",
+    log_dir=get_log_dir() / "logs",
     fmt_type="detailed",
     console_level=10,  # INFO
     file_level=10,  # DEBUG
@@ -22,10 +22,24 @@ class ParameterPanel:
     根据 Parameter.type 动态创建对应的输入控件。
     """
 
+    # 默认空值显示
+    _EMPTY_DISPLAY = ""
+    # 支持的类型映射
+    _TYPE_MAPPING = {
+        "string": "_build_string",
+        "file": "_build_file",
+        "directory": "_build_directory",
+        "dir": "_build_directory",
+        "single": "_build_single_choice",
+        "enum": "_build_single_choice",
+        "multi": "_build_multi_choice",
+        "boolean": "_build_boolean",
+        "bool": "_build_boolean",
+    }
+
     def __init__(
         self, state: AppState, state_service: StateService, on_command_changed=None
     ):
-
         # app状态
         self.state = state
 
@@ -40,6 +54,12 @@ class ParameterPanel:
 
         # 文件选择器
         self.file_picker = ft.FilePicker()
+
+        # 分组容器（用于布尔和多项选择的分组显示）
+        self._group_containers = {
+            "boolean": [],  # 存储所有布尔控件，用于统一包装
+            "multi": [],    # 存储所有多选控件，用于统一包装
+        }
 
         self.list_view = ft.ListView(
             expand=True,
@@ -62,17 +82,14 @@ class ParameterPanel:
             ),
             padding=1,
             margin=1,
-            border=ft.Border.all(
-                1,
-                ft.Colors.GREY_400,
-            ),
+            border=ft.Border.all(1, ft.Colors.GREY_400),
             border_radius=8,
             expand=True,
         )
 
         # 初始化参数面板
         manifest = self.state.get_selected_manifest()
-        if manifest:
+        if manifest and manifest.parameters:
             self.set_parameters(manifest.parameters)
 
     def build(self):
@@ -82,24 +99,135 @@ class ParameterPanel:
         """刷新参数面板"""
         self.clear()
         manifest = self.state.get_selected_manifest()
-        if manifest:
+        if manifest and manifest.parameters:
             self.set_parameters(manifest.parameters)
 
     def set_parameters(self, parameters: list[Parameter]):
         """根据参数定义重新构建参数面板。"""
+        # 重置分组容器
+        self._group_containers = {
+            "boolean": [],
+            "multi": [],
+        }
+
         for parameter in parameters:
             control = self._build_parameter(parameter)
             if control is not None:
                 self.parameter_controls[parameter.id] = control
-                self.list_view.controls.append(control)
+                # 对于布尔和多选，暂存到分组列表
+                if parameter.type in ["boolean", "bool"]:
+                    self._group_containers["boolean"].append(control)
+                elif parameter.type in ["multi"]:
+                    self._group_containers["multi"].append(control)
+                else:
+                    self.list_view.controls.append(control)
+
+        # 添加分组控件
+        self._add_grouped_controls()
 
         # 构建完成后从状态加载值
         self.load_from_state()
+
+    def _add_grouped_controls(self):
+        """添加分组后的控件（布尔和多选）。"""
+        # 处理布尔控件分组
+        if self._group_containers["boolean"]:
+            # 提取所有开关的标签和控件
+            switches = []
+            for container in self._group_containers["boolean"]:
+                # 从容器中提取 Switch 控件
+                if isinstance(container.content, ft.Column):
+                    for child in container.content.controls:
+                        if isinstance(child, ft.Switch):
+                            switches.append(child)
+
+            if switches:
+                # 创建开关组容器
+                switch_group = self._create_switch_group(switches)
+                self.list_view.controls.append(switch_group)
+
+        # 处理多选控件分组
+        if self._group_containers["multi"]:
+            # 提取所有复选框
+            checkboxes = []
+            for container in self._group_containers["multi"]:
+                if isinstance(container.content, ft.Column):
+                    for child in container.content.controls:
+                        if isinstance(child, ft.Checkbox):
+                            checkboxes.append(child)
+
+            if checkboxes:
+                # 创建多选组容器
+                multi_group = self._create_multi_choice_group(checkboxes)
+                self.list_view.controls.append(multi_group)
+
+    def _create_switch_group(self, switches: list[ft.Switch]) -> ft.Container:
+        """创建开关组容器。"""
+        # 为每个开关添加标签
+        switch_row = ft.Row(
+            controls=switches,
+            wrap=True,  # 自动换行
+            spacing=20,
+            run_spacing=10,
+            expand=True,
+        )
+
+        return ft.Container(
+            content=ft.Column(
+                controls=[
+                    ft.Text(
+                        "开关选项",
+                        weight=ft.FontWeight.BOLD,
+                        size=14,
+                    ),
+                    ft.Divider(height=1),
+                    switch_row,
+                ],
+                spacing=5,
+            ),
+            padding=10,
+            border=ft.Border.all(1, ft.Colors.GREY_400),
+            border_radius=8,
+            margin=ft.Margin(0, 5, 0, 5),
+        )
+
+    def _create_multi_choice_group(self, checkboxes: list[ft.Checkbox]) -> ft.Container:
+        """创建多选组容器。"""
+        checkbox_row = ft.Row(
+            controls=checkboxes,
+            wrap=True,  # 自动换行
+            spacing=15,
+            run_spacing=8,
+            expand=True,
+        )
+
+        return ft.Container(
+            content=ft.Column(
+                controls=[
+                    ft.Text(
+                        "多选选项",
+                        weight=ft.FontWeight.BOLD,
+                        size=14,
+                    ),
+                    ft.Divider(height=1),
+                    checkbox_row,
+                ],
+                spacing=5,
+            ),
+            padding=10,
+            border=ft.Border.all(1, ft.Colors.GREY_400),
+            border_radius=8,
+            margin=ft.Margin(0, 5, 0, 5),
+        )
 
     def clear(self):
         """清空参数面板。"""
         self.list_view.controls.clear()
         self.parameter_controls.clear()
+        self._group_containers = {
+            "boolean": [],
+            "multi": [],
+        }
 
     def load_from_state(self):
         """从 ToolState 加载参数值到控件"""
@@ -114,7 +242,7 @@ class ParameterPanel:
 
             # 根据控件类型设置值
             if isinstance(control, ft.TextField):
-                control.value = str(value)
+                control.value = str(value) if value is not None else self._EMPTY_DISPLAY
             elif isinstance(control, ft.Dropdown):
                 control.value = (
                     value if value in [opt.key for opt in control.options] else None
@@ -122,31 +250,26 @@ class ParameterPanel:
             elif isinstance(control, ft.Switch):
                 control.value = bool(value)
             elif isinstance(control, ft.Column):
-                # Multi choice - checkboxes
+                # 多选 - checkboxes
                 selected_values = set(value) if isinstance(value, list) else set()
                 for checkbox in control.controls:
                     if isinstance(checkbox, ft.Checkbox):
                         checkbox.value = checkbox.label in selected_values
             elif isinstance(control, ft.Row):
-                # File/Directory - find TextField in row
+                # 文件/目录 - 在 Row 中查找 TextField
                 for child in control.controls:
                     if isinstance(child, ft.TextField):
-                        child.value = str(value)
+                        child.value = str(value) if value is not None else self._EMPTY_DISPLAY
                         break
         tool_state.mark_clean()
 
     def _update_state(self, param_id: str, value: object):
         """更新 ToolState，并触发状态保存和命令更新。"""
-
         tool_state = self.state.get_current_state()
-
         if tool_state is None:
             return
 
-        # ================================================================
         # 1. 更新 ToolState
-        # ================================================================
-
         tool_state.set(param_id, value)
 
         logger.debug(
@@ -155,38 +278,20 @@ class ParameterPanel:
             value,
         )
 
-        # ================================================================
         # 2. 自动保存状态
-        # ================================================================
-
         self.state_service.auto_save(self.state)
 
-        # ================================================================
         # 3. 通知外部重新生成命令
-        # ================================================================
-
         if self.on_command_changed is not None:
             self.on_command_changed()
 
     def _build_parameter(self, parameter: Parameter) -> ft.Control | None:
         """根据 Parameter.type 创建输入控件。"""
-        builders = {
-            "string": self._build_string,
-            "file": self._build_file,
-            "directory": self._build_directory,
-            "dir": self._build_directory,
-            "single": self._build_single_choice,
-            "enum": self._build_single_choice,
-            "multi": self._build_multi_choice,
-            "boolean": self._build_boolean,
-            "bool": self._build_boolean,
-        }
-
-        builder = builders.get(parameter.type)
-
-        if builder is None:
+        builder_name = self._TYPE_MAPPING.get(parameter.type)
+        if builder_name is None:
             return self._build_unsupported(parameter)
 
+        builder = getattr(self, builder_name)
         return builder(parameter)
 
     # ---------------------------------------------------------
@@ -195,7 +300,6 @@ class ParameterPanel:
 
     def _build_string(self, parameter: Parameter) -> ft.Control:
         """构建字符串参数控件。"""
-
         value = self._get_parameter_value(parameter)
 
         field = ft.TextField(
@@ -205,7 +309,7 @@ class ParameterPanel:
             expand=True,
             on_blur=lambda e: self._update_state(
                 parameter.id,
-                e.control.value,
+                e.control.value if e.control.value else None,
             ),
         )
 
@@ -217,7 +321,6 @@ class ParameterPanel:
 
     def _build_file(self, parameter: Parameter) -> ft.Control:
         """构建文件参数控件。"""
-
         value = self._get_parameter_value(parameter)
 
         field = ft.TextField(
@@ -227,7 +330,7 @@ class ParameterPanel:
             expand=True,
             on_change=lambda e: self._update_state(
                 parameter.id,
-                e.control.value,
+                e.control.value if e.control.value else None,
             ),
         )
 
@@ -254,6 +357,7 @@ class ParameterPanel:
                     field,
                     button,
                 ],
+                spacing=5,
             ),
         )
 
@@ -263,7 +367,6 @@ class ParameterPanel:
 
     def _build_directory(self, parameter: Parameter) -> ft.Control:
         """构建目录参数控件。"""
-
         value = self._get_parameter_value(parameter)
 
         field = ft.TextField(
@@ -273,7 +376,7 @@ class ParameterPanel:
             expand=True,
             on_change=lambda e: self._update_state(
                 parameter.id,
-                e.control.value,
+                e.control.value if e.control.value else None,
             ),
         )
 
@@ -297,6 +400,7 @@ class ParameterPanel:
                     field,
                     button,
                 ],
+                spacing=5,
             ),
         )
 
@@ -306,7 +410,6 @@ class ParameterPanel:
 
     def _build_single_choice(self, parameter: Parameter) -> ft.Control:
         """构建单选参数控件。"""
-
         value = self._get_parameter_value(parameter)
 
         dropdown = ft.Dropdown(
@@ -322,7 +425,7 @@ class ParameterPanel:
             expand=True,
             on_text_change=lambda e: self._update_state(
                 parameter.id,
-                e.control.value,
+                e.control.value if e.control.value else None,
             ),
         )
 
@@ -334,25 +437,23 @@ class ParameterPanel:
 
     def _build_multi_choice(self, parameter: Parameter) -> ft.Control:
         """构建多选参数控件。"""
-
         value = self._get_parameter_value(parameter)
 
         selected = set()
-
         if isinstance(value, list):
             selected.update(str(item) for item in value)
 
         checkboxes = []
 
         def on_checkbox_change(e: ft.Event[ft.Checkbox]):
-            selected_values = [
-                checkbox.label for checkbox in checkboxes if checkbox.value
-            ]
-
-            self._update_state(
-                parameter.id,
-                selected_values,
-            )
+            # 获取同一组所有复选框的值
+            parent = e.control.parent
+            if parent and isinstance(parent, ft.Column):
+                selected_values = [
+                    checkbox.label for checkbox in parent.controls 
+                    if isinstance(checkbox, ft.Checkbox) and checkbox.value
+                ]
+                self._update_state(parameter.id, selected_values)
 
         for choice in parameter.choices:
             checkbox = ft.Checkbox(
@@ -362,12 +463,14 @@ class ParameterPanel:
             )
             checkboxes.append(checkbox)
 
-        return self._wrap_parameter(
-            parameter,
-            ft.Column(
+        # 返回包含所有复选框的列，稍后会被统一分组
+        return ft.Container(
+            content=ft.Column(
                 controls=checkboxes,
                 spacing=2,
             ),
+            # 添加隐藏的标签信息，用于分组显示
+            data={"type": "multi", "label": parameter.label},
         )
 
     # ---------------------------------------------------------
@@ -376,25 +479,32 @@ class ParameterPanel:
 
     def _build_boolean(self, parameter: Parameter) -> ft.Control:
         """构建布尔参数控件。"""
-
         value = self._get_parameter_value(parameter)
 
         switch = ft.Switch(
             label=parameter.label,
-            value=bool(value),
+            value=bool(value) if value is not None else False,
             on_change=lambda e: self._update_state(
                 parameter.id,
                 e.control.value,
             ),
         )
 
-        return self._wrap_parameter(parameter, switch)
+        # 返回包含开关的容器，稍后会被统一分组
+        return ft.Container(
+            content=ft.Column(
+                controls=[switch],
+                spacing=2,
+            ),
+            data={"type": "boolean", "label": parameter.label},
+        )
 
     # ---------------------------------------------------------
     # Helpers
     # ---------------------------------------------------------
 
     def _wrap_parameter(self, parameter: Parameter, control: ft.Control) -> ft.Control:
+        """包装单个参数控件（非分组类型）。"""
         if parameter.required:
             title = ft.Text(
                 f"{parameter.label} *",
@@ -425,6 +535,7 @@ class ParameterPanel:
                 spacing=4,
             ),
             padding=5,
+            margin=ft.Margin(0, 2, 0, 2),
         )
 
     @staticmethod
