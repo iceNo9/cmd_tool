@@ -295,9 +295,30 @@ class ManifestParser:
             logger.error("runtime 缺少必要字段: entry")
             raise ManifestParseError("runtime 缺少必要字段: entry")
 
-        runtime = Runtime(language=data["language"], entry=data["entry"])
+        entry = data["entry"]
+        
+        # entry 必须是列表
+        if not isinstance(entry, list):
+            logger.error(f"runtime.entry 必须是列表，实际为 {type(entry).__name__}")
+            raise ManifestParseError(
+                f"runtime.entry 必须是列表，实际为 {type(entry).__name__}"
+            )
+        
+        # 验证列表中的元素都是字符串
+        if not all(isinstance(item, str) for item in entry):
+            logger.error("runtime.entry 列表中的元素必须是字符串")
+            raise ManifestParseError("runtime.entry 列表中的元素必须是字符串")
+        
+        # 验证列表不为空
+        if not entry:
+            logger.error("runtime.entry 列表不能为空")
+            raise ManifestParseError("runtime.entry 列表不能为空")
+
+        runtime = Runtime(language=data["language"], entry=entry)
         logger.debug(
-            f"Runtime 对象创建成功 - 语言: {runtime.language}, 入口: {runtime.entry}"
+            f"Runtime 对象创建成功 - "
+            f"语言: {runtime.language}, "
+            f"入口: {' '.join(runtime.entry)}"
         )
 
         return runtime

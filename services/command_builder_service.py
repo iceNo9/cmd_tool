@@ -90,20 +90,19 @@ class CommandBuilderService:
 
         if not language:
             raise ValueError(
-                f"工具没有配置 runtime.language: " f"{manifest.metadata.id}"
+                f"工具没有配置 runtime.language: {manifest.metadata.id}"
             )
 
         entry = manifest.runtime.entry
 
         if not entry:
-            raise ValueError(f"工具没有配置 runtime.entry: " f"{manifest.metadata.id}")
+            raise ValueError(f"工具没有配置 runtime.entry: {manifest.metadata.id}")
 
-        parts.extend(
-            [
-                language,
-                entry,
-            ]
-        )
+        # 添加语言
+        parts.append(language)
+
+        # entry 已经是列表，直接展开
+        parts.extend(entry)
 
         # ------------------------------------------------------------
         # 构建参数

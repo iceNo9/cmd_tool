@@ -60,8 +60,8 @@ class Runtime:
     language: str
     """编程语言类型"""
 
-    entry: str
-    """入口文件路径，相对于插件根目录"""
+    entry: list[str]
+    """入口文件路径或命令参数列表"""
 
 
 @dataclass
