@@ -13,6 +13,9 @@ env:
   PYTHONUTF8: "1"
   FLET_CLI_NO_RICH_OUTPUT: "1"
 
+permissions:
+  contents: write
+  
 jobs:
   build:
     name: Build Windows
