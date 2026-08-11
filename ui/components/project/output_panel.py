@@ -1,9 +1,10 @@
 # ui/components/output_panel.py
 
-import flet as ft
 import asyncio
 
-from models.app_state import AppState
+import flet as ft
+
+from models.state import AppState
 from ui.components.stacked_notifications.stacked_notifications import (
     NotificationManager,
 )
@@ -27,6 +28,7 @@ class OutputPanel:
             content=self.output_text,
             expand=True,
             on_click=self._on_click,
+            width=2000
         )
 
         self.view = ft.Container(
@@ -51,6 +53,11 @@ class OutputPanel:
 
     def build(self):
         return self.view
+
+    def refresh(self) -> None:
+        """根据当前工具刷新输出内容。"""
+        # 当前工具切换时，先清空旧工具的命令输出。
+        self.output_text.value = ""
 
     def set_text(self, text: str):
         """设置输出内容，并自动复制到剪贴板。"""

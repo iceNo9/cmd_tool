@@ -1,4 +1,4 @@
-# models\app_state.py
+# models\state.py
 
 
 """
@@ -337,6 +337,33 @@ class ToolState:
         lines.append(f"  dirty: {self.dirty}")
         return "\n".join(lines)
 
+    def to_dict(self) -> dict[str, object]:
+        """
+        序列化为字典
+
+        Returns:
+            dict: 状态数据
+        """
+        return {
+            "tool_id": self.tool_id,
+            "values": copy.deepcopy(self.values),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, object]) -> ToolState:
+        """
+        从字典反序列化
+
+        Args:
+            data: 状态数据字典
+
+        Returns:
+            ToolState: 状态对象
+        """
+        state = cls(data["tool_id"])
+        state.values = copy.deepcopy(data.get("values", {}))
+        state.dirty = False
+        return state
 
 class AppState:
     """应用运行时状态"""
@@ -352,6 +379,13 @@ class AppState:
         
         # 工具搜索关键词
         self.tool_search = tool_search
+
+        # 每个工具的参数状态
+        self.tool_states: dict[str, ToolState] = {}
+
+        # 初始化所有工具的状态
+        for manifest in self.manifests:
+            self.tool_states[manifest.metadata.id] = ToolState(manifest.metadata.id)
         
         # 当前选中的工具 ID - 如果有 manifests 且没指定 selected_tool_id，使用第一个
         if selected_tool_id is not None:
@@ -361,6 +395,16 @@ class AppState:
         else:
             self.selected_tool_id = None
 
+    def get_current_state(self) -> ToolState | None:
+        """获取当前选中工具的状态"""
+        if self.selected_tool_id is None:
+            return None
+        return self.tool_states.get(self.selected_tool_id)
+    
+    def get_state(self, tool_id: str) -> ToolState | None:
+        """获取指定工具的状态"""
+        return self.tool_states.get(tool_id)
+    
     def select_tool(self, tool_id: str) -> None:
         """选择工具"""
         if self.get_manifest(tool_id) is None:
@@ -388,11 +432,52 @@ class AppState:
         return self.get_manifest(self.selected_tool_id)
 
     def set_manifests(self, manifests: list[Manifest]) -> None:
-        """设置工具列表并自动选择第一个"""
+        """设置工具列表并同步工具运行时状态。"""
+
         self.manifests = manifests
-        if self.manifests:
-            if (self.selected_tool_id is None or 
-                self.get_manifest(self.selected_tool_id) is None):
-                self.selected_tool_id = self.manifests[0].metadata.id
-        else:
+
+        valid_tool_ids = {
+            manifest.metadata.id
+            for manifest in manifests
+        }
+
+        # 删除已经不存在的工具状态
+        self.tool_states = {
+            tool_id: state
+            for tool_id, state in self.tool_states.items()
+            if tool_id in valid_tool_ids
+        }
+
+        # 为新工具创建状态
+        for manifest in manifests:
+            tool_id = manifest.metadata.id
+
+            if tool_id not in self.tool_states:
+                self.tool_states[tool_id] = ToolState(tool_id)
+
+        # 修正当前选中的工具
+        if not manifests:
             self.selected_tool_id = None
+
+        elif (
+            self.selected_tool_id is None
+            or self.selected_tool_id not in valid_tool_ids
+        ):
+            self.selected_tool_id = manifests[0].metadata.id
+
+    def is_dirty(self) -> bool:
+        """
+        检查是否有未保存的修改
+
+        Returns:
+            bool: 有未保存修改返回 True
+        """
+        for state in self.tool_states.values():
+            if state.is_dirty():
+                return True
+        return False
+
+    def clear_all_states(self) -> None:
+        """清空所有工具的状态"""
+        for state in self.tool_states.values():
+            state.reset()

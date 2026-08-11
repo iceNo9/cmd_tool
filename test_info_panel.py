@@ -3,7 +3,7 @@
 
 import flet as ft
 
-from models.app_state import AppState
+from models.state import AppState
 from models.manifest import Metadata
 from ui.components.project.info_panel import InfoPanel
 

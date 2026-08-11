@@ -7,4 +7,5 @@ requires-python = ">=3.13"
 dependencies = [
     "flet>=0.86.5",
     "pyyaml>=6.0.3",
+    "ruamel-yaml>=0.19.1",
 ]

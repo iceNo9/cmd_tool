@@ -2,7 +2,7 @@
 
 import flet as ft
 
-from models.app_state import AppState
+from models.state import AppState
 from ui.components.project.output_panel import OutputPanel
 from ui.components.stacked_notifications.stacked_notifications import (
     NotificationManager,

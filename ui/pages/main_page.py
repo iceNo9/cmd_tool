@@ -1,72 +1,110 @@
-# ui/pages/main_page.py
-
 import flet as ft
 
-from models.manifest import Metadata
-from ui.components.project.tool_panel import ToolList
+from models.state import AppState
+from services.manifest_parser_service import parse_manifests
+from services.plugin_loader_service import discover_plugins
+from services.state_service import StateService
+from ui.components.project.info_panel import InfoPanel
+from ui.components.project.output_panel import OutputPanel
+from ui.components.project.parameter_panel import ParameterPanel
+from ui.components.project.tool_panel import ToolPanel
+from ui.components.stacked_notifications.stacked_notifications import (
+    NotificationManager,
+)
 
 
-def main(page: ft.Page):
+def build_main_page(page: ft.Page) -> None:
+    """构建 CMD Tools 主页面。"""
+
     page.title = "CMD Tools"
     page.theme_mode = ft.ThemeMode.LIGHT
-    page.padding = 20
-    
-    # 模拟数据
-    tools = [
-        Metadata(
-            id="com.example.encoder",
-            name="视频编码器",
-            version="1.2.0",
-            description="支持 H.264/H.265 视频编码转换工具",
-        ),
-        Metadata(
-            id="com.example.scanner",
-            name="端口扫描器",
-            version="2.0.1",
-            description="快速扫描目标主机的开放端口和服务",
-        ),
-        Metadata(
-            id="com.example.renamer",
-            name="批量重命名",
-            version="0.9.5",
-            description="支持正则表达式的文件批量重命名工具",
-        ),
-        Metadata(
-            id="com.example.backup",
-            name="数据库备份",
-            version="3.1.0",
-            description="PostgreSQL/MySQL 数据库自动备份工具",
-        ),
-        Metadata(
-            id="com.example.cleaner",
-            name="系统清理",
-            version="1.0.0",
-            description="清理临时文件、缓存和日志文件",
-        ),
-    ]
-    
-    def on_tool_click(metadata: Metadata):
-        """点击插件卡片"""
-        page.snack_bar = ft.SnackBar(
-            content=ft.Text(f"点击了: {metadata.name} ({metadata.id})"),
-            duration=2000,
-        )
-        page.snack_bar.open = True
-        page.update()
-    
-    # 插件列表
-    tool_list = ToolList(tools, on_tool_click=on_tool_click)
-    tool_list.expand = True
-    
-    # ✅ 直接添加，不用 Container 包裹
-    page.add(
-        ft.Text("插件列表", size=24, weight=ft.FontWeight.BOLD),
-        ft.Divider(height=20),
-        tool_list,
+    page.padding = 10
+    page.window.width = 1200
+    page.window.height = 1000
+
+    # ====================================================================
+    # 加载插件
+    # ====================================================================
+
+    paths = discover_plugins()
+    manifests = parse_manifests(paths)
+
+    # ====================================================================
+    # 创建应用状态
+    # ====================================================================
+
+    state = AppState(manifests)
+
+    state_service = StateService()
+    state_service.load(state)
+
+    # ====================================================================
+    # 创建通知管理器
+    # ====================================================================
+
+    ntf = NotificationManager(page)
+
+    # ====================================================================
+    # 创建页面组件
+    # ====================================================================
+
+    def on_tool_selected(tool_id: str):
+        """处理工具切换。"""
+        info_panel.refresh()
+        para_panel.refresh()
+        output_panel.refresh()
+
+    tool_panel = ToolPanel(
+        state,
+        on_tool_selected=on_tool_selected,
     )
-    
-    page.update()
+    info_panel = InfoPanel(state)
+    para_panel = ParameterPanel(state, state_service)
+    output_panel = OutputPanel(state, ntf)
 
+    # ====================================================================
+    # 页面布局
+    # ====================================================================
 
-if __name__ == "__main__":
-    ft.app(target=main)  # 注意：这里还是 ft.app，需要改成 ft.run
+    left_panel = ft.Container(
+        content=tool_panel.build(),
+        width=280,
+        padding=5,
+    )
+
+    right_panel = ft.Column(
+        controls=[
+            ft.Container(
+                content=info_panel.build(),
+                # expand=True,
+                padding=5,
+                height=210,
+            ),
+            ft.Container(
+                content=para_panel.build(),
+                expand=True,
+                padding=5,
+            ),
+            ft.Container(
+                content=output_panel.build(),                
+                # expand=True,
+                padding=5,
+                height=200,
+            ),
+        ],
+        expand=True,
+        spacing=5,
+        alignment=ft.MainAxisAlignment.CENTER,
+    )
+
+    main_layout = ft.Row(
+        controls=[
+            left_panel,
+            ft.VerticalDivider(width=1),
+            right_panel,
+        ],
+        expand=True,
+        spacing=5,
+    )
+
+    page.add(main_layout)

@@ -3,8 +3,18 @@
 
 import flet as ft
 
-from models.app_state import AppState
+from models.state import AppState
 from ui.components.project.tool_card import ToolCard
+from utils.log import get_logger
+
+# 创建该模块专用的日志记录器
+logger = get_logger(
+    name="tool_panel",
+    log_dir="logs",
+    fmt_type="detailed",
+    console_level=20,  # INFO
+    file_level=10,  # DEBUG
+)
 
 
 class ToolPanel:
@@ -12,9 +22,11 @@ class ToolPanel:
     def __init__(
         self,
         state: AppState,
+        on_tool_selected=None,
     ):
 
         self.state = state
+        self.on_tool_selected = on_tool_selected
 
         self.title = ft.Text("工具列表", size=20, weight=ft.FontWeight.BOLD)
 
@@ -45,16 +57,20 @@ class ToolPanel:
         )
 
         keyword = self.state.tool_search.lower()
-        for tool in self.state.tools:
+        for manifest in self.state.manifests:
 
             if keyword:
 
-                text = tool.name + tool.description if tool.description else tool.name
+                text = (
+                    manifest.metadata.name + manifest.metadata.description
+                    if manifest.metadata.description
+                    else manifest.metadata.name
+                )
 
                 if keyword not in text.lower():
                     continue
 
-            card = ToolCard(tool, on_click=self.select_tool)
+            card = ToolCard(manifest.metadata, on_click=self.select_tool)
 
             self.list_view.controls.append(card.build())
 
@@ -66,17 +82,20 @@ class ToolPanel:
         self.list_view.controls.clear()
 
         keyword = self.state.tool_search.lower()
-
-        for tool in self.state.tools:
+        for manifest in self.state.manifests:
 
             if keyword:
 
-                text = tool.name + tool.description if tool.description else tool.name
+                text = (
+                    manifest.metadata.name + manifest.metadata.description
+                    if manifest.metadata.description
+                    else manifest.metadata.name
+                )
 
                 if keyword not in text.lower():
                     continue
 
-            card = ToolCard(tool, on_click=self.select_tool)
+            card = ToolCard(manifest.metadata, on_click=self.select_tool)
 
             self.list_view.controls.append(card.build())
 
@@ -89,7 +108,20 @@ class ToolPanel:
         self.refresh()
 
     def select_tool(self, metadata):
+        """选择工具并通知页面刷新。"""
 
-        self.state.select_tool(metadata)
+        tool_id = metadata.id
 
-        print("选择:", metadata.name)
+        if self.state.selected_tool_id == tool_id:
+            return
+
+        self.state.select_tool(tool_id)
+
+        logger.debug(
+            "选择工具: tool_id=%s, name=%s",
+            tool_id,
+            metadata.name,
+        )
+
+        if self.on_tool_selected:
+            self.on_tool_selected(tool_id)

@@ -100,7 +100,7 @@ class ToolCard:
                     overflow=ft.TextOverflow.ELLIPSIS,
                 ),
                 ft.Text(
-                    value=(f"version: {self.metadata.id}"),
+                    value=(f"version: {self.metadata.version}"),
                     size=10,
                     color=ft.Colors.GREY_600,
                     max_lines=1,
