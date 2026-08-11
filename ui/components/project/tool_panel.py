@@ -6,11 +6,12 @@ import flet as ft
 from models.state import AppState
 from ui.components.project.tool_card import ToolCard
 from utils.log import get_logger
+from utils.paths import get_log_dir
 
 # 创建该模块专用的日志记录器
 logger = get_logger(
     name="tool_panel",
-    log_dir="logs",
+    log_dir=get_log_dir() / "logs",
     fmt_type="detailed",
     console_level=20,  # INFO
     file_level=10,  # DEBUG
@@ -74,6 +75,35 @@ class ToolPanel:
 
             self.list_view.controls.append(card.build())
 
+        # 没有任何工具时显示提示
+        if not self.list_view.controls:
+            if self.state.manifests:
+                message = "没有找到匹配的插件"
+            else:
+                message = "暂无可用插件"
+
+            self.list_view.controls.append(
+                ft.Container(
+                    content=ft.Column(
+                        controls=[
+                            ft.Icon(
+                                ft.Icons.EXTENSION_OFF,
+                                size=32,
+                            ),
+                            ft.Text(
+                                message,
+                                size=14,
+                                color=ft.Colors.GREY_600,
+                            ),
+                        ],
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        spacing=8,
+                    ),
+                    alignment=ft.Alignment.CENTER,
+                    padding=20,
+                )
+            )
+
     def build(self):
         return self.view
 
@@ -98,6 +128,35 @@ class ToolPanel:
             card = ToolCard(manifest.metadata, on_click=self.select_tool)
 
             self.list_view.controls.append(card.build())
+
+        # 没有任何工具时显示提示
+        if not self.list_view.controls:
+            if self.state.manifests:
+                message = "没有找到匹配的插件"
+            else:
+                message = "暂无可用插件"
+
+            self.list_view.controls.append(
+                ft.Container(
+                    content=ft.Column(
+                        controls=[
+                            ft.Icon(
+                                ft.Icons.EXTENSION_OFF,
+                                size=32,
+                            ),
+                            ft.Text(
+                                message,
+                                size=14,
+                                color=ft.Colors.GREY_600,
+                            ),
+                        ],
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        spacing=8,
+                    ),
+                    alignment=ft.Alignment.CENTER,
+                    padding=20,
+                )
+            )
 
         self.list_view.update()
 

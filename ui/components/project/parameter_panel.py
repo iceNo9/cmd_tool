@@ -4,11 +4,12 @@ from models.manifest import Parameter
 from models.state import AppState
 from services.state_service import StateService
 from utils.log import get_logger
+from utils.paths import get_log_dir
 
 # 创建该模块专用的日志记录器
 logger = get_logger(
     name="parameter_panel",
-    log_dir="logs",
+	log_dir=get_log_dir() / "logs",
     fmt_type="detailed",
     console_level=10,  # INFO
     file_level=10,  # DEBUG

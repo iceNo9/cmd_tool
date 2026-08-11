@@ -4,11 +4,11 @@ import flet as ft
 
 from ui.pages.error_page import build_error_page
 from utils.log import get_logger
-from utils.paths import get_path_info
+from utils.paths import get_log_dir, get_path_info
 
 logger = get_logger(
     name="app",
-    log_dir=None,
+    log_dir=get_log_dir() / "logs",
     fmt_type="detailed",
     console_level=10,
     file_level=10,
@@ -18,6 +18,11 @@ logger = get_logger(
 def main(page: ft.Page):
     try:
         logger.info("CMD Tools 开始启动")
+
+        logger.info("应用路径信息:")
+        path_info = get_path_info()
+        for name, value in path_info.items():
+            logger.info(f"  {name}: {value}")
 
         # ================================================================
         # 延迟导入

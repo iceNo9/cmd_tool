@@ -1,10 +1,10 @@
 import flet as ft
 
 from models.state import AppState
+from services.command_builder_service import CommandBuilderService
 from services.manifest_parser_service import parse_manifests
 from services.plugin_loader_service import discover_plugins
 from services.state_service import StateService
-from services.command_builder_service import CommandBuilderService
 from ui.components.project.info_panel import InfoPanel
 from ui.components.project.output_panel import OutputPanel
 from ui.components.project.parameter_panel import ParameterPanel

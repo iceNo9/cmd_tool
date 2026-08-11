@@ -24,7 +24,7 @@ from ruamel.yaml import YAML
 
 from models.state import AppState, ToolState
 from utils.log import get_logger
-from utils.paths import ensure_dir, get_user_data_dir
+from utils.paths import ensure_dir, get_data_dir, get_log_dir
 
 # ========================================================================
 # 日志
@@ -32,7 +32,7 @@ from utils.paths import ensure_dir, get_user_data_dir
 
 logger = get_logger(
     name="state_service",
-    log_dir="logs",
+	log_dir=get_log_dir() / "logs",
     fmt_type="detailed",
     console_level=20,  # INFO
     file_level=10,  # DEBUG
@@ -69,7 +69,7 @@ class StateService:
 
     def get_state_file_path(self) -> Path:
         """获取状态文件完整路径"""
-        data_dir = get_user_data_dir()
+        data_dir = get_data_dir()
         ensure_dir(data_dir)
 
         state_file = data_dir / self.state_file
@@ -202,13 +202,15 @@ class StateService:
 
     def load(self, app_state: AppState) -> bool:
         """
-        从文件加载状态到应用状态对象
+        从文件加载状态到应用状态对象。
+
+        如果状态文件不存在，则自动创建默认状态文件。
 
         Args:
             app_state: 应用状态对象（会被修改）
 
         Returns:
-            bool: 加载成功返回 True
+            bool: 加载成功或初始化成功返回 True
 
         Raises:
             Exception: 状态文件读取或解析失败时抛出异常
@@ -226,7 +228,21 @@ class StateService:
 
         if not state_file.exists():
             logger.info(
-                "状态文件不存在，跳过加载: %s",
+                "状态文件不存在，创建默认状态文件: %s",
+                state_file,
+            )
+
+            # 第一次启动时没有状态文件，
+            # 使用当前 AppState 创建一个初始状态文件。
+            if self.save(app_state):
+                logger.info(
+                    "默认状态文件创建成功: %s",
+                    state_file,
+                )
+                return True
+
+            logger.error(
+                "默认状态文件创建失败: %s",
                 state_file,
             )
             return False
@@ -245,9 +261,7 @@ class StateService:
                 data = self.yaml.load(f)
 
             if data is None:
-                raise ValueError(
-                    f"状态文件为空: {state_file}"
-                )
+                raise ValueError(f"状态文件为空: {state_file}")
 
             logger.debug(
                 "状态文件读取完成: keys=%s",
@@ -267,9 +281,7 @@ class StateService:
                 )
 
                 if app_state.get_manifest(tool_id) is None:
-                    raise ValueError(
-                        f"状态文件中的工具不存在: tool_id={tool_id}"
-                    )
+                    raise ValueError(f"状态文件中的工具不存在: tool_id={tool_id}")
 
                 app_state.selected_tool_id = tool_id
 
@@ -306,17 +318,10 @@ class StateService:
 
                     # ----------------------------------------------------
                     # 检查工具是否存在
-                    #
-                    # 修改：
-                    # YAML 是程序内部生成的数据。
-                    # 如果状态文件中的工具当前不存在，
-                    # 说明程序状态出现了不一致，直接报错。
                     # ----------------------------------------------------
 
                     if tool_id not in app_state.tool_states:
-                        raise ValueError(
-                            f"状态文件中的工具不存在: tool_id={tool_id}"
-                        )
+                        raise ValueError(f"状态文件中的工具不存在: tool_id={tool_id}")
 
                     logger.debug(
                         "开始恢复工具状态: tool_id=%s",
@@ -337,10 +342,6 @@ class StateService:
 
                     # ----------------------------------------------------
                     # 验证 tool_id
-                    #
-                    # 修改：
-                    # YAML 内部数据与外层 key 不一致时直接报错。
-                    # 不做自动修正，避免隐藏状态文件问题。
                     # ----------------------------------------------------
 
                     if loaded_state.tool_id != tool_id:
@@ -352,11 +353,6 @@ class StateService:
 
                     # ----------------------------------------------------
                     # 恢复完整 ToolState
-                    #
-                    # 修改：
-                    # 不再逐项调用 set()。
-                    # 直接替换完整 ToolState，避免恢复过程中产生 dirty。
-                    # ToolState.from_dict() 已保证 dirty=False。
                     # ----------------------------------------------------
 
                     app_state.tool_states[tool_id] = loaded_state
@@ -379,7 +375,6 @@ class StateService:
                 state_file,
             )
             raise
-
 
     # ====================================================================
     # 便捷方法

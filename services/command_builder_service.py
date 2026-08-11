@@ -37,10 +37,11 @@ import subprocess
 from models.manifest import Manifest, Parameter
 from models.state import ToolState
 from utils.log import get_logger
+from utils.paths import get_log_dir
 
 logger = get_logger(
     name="command_builder_service",
-    log_dir="logs",
+    log_dir=get_log_dir() / "logs",
     fmt_type="detailed",
     console_level=10,
     file_level=10,

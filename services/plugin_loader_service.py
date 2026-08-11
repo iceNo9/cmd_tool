@@ -35,12 +35,12 @@ import time
 from pathlib import Path
 
 from utils.log import get_logger
-from utils.paths import get_plugin_dir
+from utils.paths import get_log_dir, get_plugin_dir
 
 # 创建模块专用日志记录器
 logger = get_logger(
     name="plugin_loader",
-    log_dir="logs",
+	log_dir=get_log_dir() / "logs",
     fmt_type="detailed",
     console_level=20,  # INFO
     file_level=10,  # DEBUG

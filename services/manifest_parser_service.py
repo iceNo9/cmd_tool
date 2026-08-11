@@ -43,11 +43,12 @@ from models.manifest import (
     Runtime,
 )
 from utils.log import get_logger
+from utils.paths import get_log_dir
 
 # 创建该模块专用的日志记录器
 logger = get_logger(
     name="manifest_parser",
-    log_dir="logs",
+	log_dir=get_log_dir() / "logs",
     fmt_type="detailed",
     console_level=20,  # INFO
     file_level=10,  # DEBUG

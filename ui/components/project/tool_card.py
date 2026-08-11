@@ -17,9 +17,16 @@ import flet as ft
 
 from models.manifest import Metadata
 from utils.log import get_logger
+from utils.paths import get_log_dir
 
-logger = get_logger("tool_card", fmt_type="detailed")
-
+# 创建该模块专用的日志记录器
+logger = get_logger(
+    name="tool_card",
+	log_dir=get_log_dir() / "logs",
+    fmt_type="detailed",
+    console_level=10,  # INFO
+    file_level=10,  # DEBUG
+)
 
 class ToolCard:
     """
