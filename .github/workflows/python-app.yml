@@ -1,0 +1,39 @@
+name: Build Flet App
+
+on:
+  push:
+    branches:
+      - 'main'
+    tags:
+      - '*'  
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  UV_PYTHON: "3.13"
+  PYTHONUTF8: "1"
+  FLET_CLI_NO_RICH_OUTPUT: "1"
+
+jobs:
+  build:
+    name: Build Windows
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v9
+
+      - name: Build app
+        run: |
+          uv run flet build windows --yes --verbose
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: windows-build
+          path: build/windows
+          if-no-files-found: error
