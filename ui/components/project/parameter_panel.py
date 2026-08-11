@@ -55,7 +55,7 @@ class ParameterPanel:
         # 文件选择器
         self.file_picker = ft.FilePicker()
 
-        # 分组容器（用于布尔和多项选择的分组显示）
+        # 分组容器（用于布尔分组显示）
         self._group_containers = {
             "boolean": [],  # 存储所有布尔控件，用于统一包装
         }
@@ -123,33 +123,33 @@ class ParameterPanel:
         self._add_grouped_controls()
 
         # 构建完成后从状态加载值
-        self.load_from_state()
+        self.load_from_state()        
 
     def _add_grouped_controls(self):
         """添加分组后的控件（只有布尔）。"""
         # 处理布尔控件分组
         if self._group_containers["boolean"]:
-            # 提取所有开关的标签和控件
+            # 提取所有开关
             switches = []
             for container in self._group_containers["boolean"]:
-                # 从容器中提取 Switch 控件
                 if isinstance(container.content, ft.Column):
                     for child in container.content.controls:
                         if isinstance(child, ft.Switch):
                             switches.append(child)
 
             if switches:
-                # 创建开关组容器
+                # 创建开关组容器（使用网格布局）
                 switch_group = self._create_switch_group(switches)
                 self.list_view.controls.append(switch_group)
 
     def _create_switch_group(self, switches: list[ft.Switch]) -> ft.Container:
-        """创建开关组容器。"""
-        # 为每个开关添加标签
-        switch_row = ft.Row(
+        """创建开关组容器 - 使用网格布局。"""
+        # 使用 GridView 实现网格布局
+        switch_grid = ft.GridView(
             controls=switches,
-            wrap=True,  # 自动换行
-            spacing=20,
+            max_extent=200,  # 每个开关最大宽度
+            child_aspect_ratio=3.0,  # 宽高比
+            spacing=10,
             run_spacing=10,
             expand=True,
         )
@@ -163,7 +163,7 @@ class ParameterPanel:
                         size=14,
                     ),
                     ft.Divider(height=1),
-                    switch_row,
+                    switch_grid,
                 ],
                 spacing=5,
             ),
@@ -219,8 +219,8 @@ class ParameterPanel:
         # 遍历 Container 的内容
         if isinstance(container.content, ft.Column):
             for child in container.content.controls:
-                if isinstance(child, ft.Row):
-                    # 在 Row 中查找 Checkbox
+                if isinstance(child, ft.GridView):
+                    # 在 GridView 中查找 Checkbox
                     for checkbox in child.controls:
                         if isinstance(checkbox, ft.Checkbox):
                             checkbox.value = checkbox.label in selected_values
@@ -401,7 +401,7 @@ class ParameterPanel:
     # ---------------------------------------------------------
 
     def _build_multi_choice(self, parameter: Parameter) -> ft.Control:
-        """构建多选参数控件 - 每个多选独立成组，选项水平排列。"""
+        """构建多选参数控件 - 每个多选独立成组，使用网格布局。"""
         value = self._get_parameter_value(parameter)
 
         selected = set()
@@ -413,7 +413,7 @@ class ParameterPanel:
         def on_checkbox_change(e: ft.Event[ft.Checkbox]):
             # 获取同一组所有复选框的值
             parent = e.control.parent
-            if parent and isinstance(parent, ft.Row):
+            if parent and isinstance(parent, ft.GridView):
                 selected_values = [
                     checkbox.label for checkbox in parent.controls 
                     if isinstance(checkbox, ft.Checkbox) and checkbox.value
@@ -428,12 +428,13 @@ class ParameterPanel:
             )
             checkboxes.append(checkbox)
 
-        # 选项水平排列，自动换行
-        checkbox_row = ft.Row(
+        # 使用 GridView 实现网格布局
+        checkbox_grid = ft.GridView(
             controls=checkboxes,
-            wrap=True,
-            spacing=15,
-            run_spacing=8,
+            max_extent=200,  # 每个复选框最大宽度
+            child_aspect_ratio=3.0,  # 宽高比
+            spacing=1,
+            run_spacing=1,
             expand=True,
         )
 
@@ -452,7 +453,7 @@ class ParameterPanel:
                 color=ft.Colors.GREY_600,
             ))
         controls.append(ft.Divider(height=1))
-        controls.append(checkbox_row)
+        controls.append(checkbox_grid)
 
         return ft.Container(
             content=ft.Column(
