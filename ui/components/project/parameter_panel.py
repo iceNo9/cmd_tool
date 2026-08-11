@@ -58,7 +58,6 @@ class ParameterPanel:
         # 分组容器（用于布尔和多项选择的分组显示）
         self._group_containers = {
             "boolean": [],  # 存储所有布尔控件，用于统一包装
-            "multi": [],    # 存储所有多选控件，用于统一包装
         }
 
         self.list_view = ft.ListView(
@@ -107,29 +106,27 @@ class ParameterPanel:
         # 重置分组容器
         self._group_containers = {
             "boolean": [],
-            "multi": [],
         }
 
         for parameter in parameters:
             control = self._build_parameter(parameter)
             if control is not None:
                 self.parameter_controls[parameter.id] = control
-                # 对于布尔和多选，暂存到分组列表
+                # 对于布尔，暂存到分组列表
                 if parameter.type in ["boolean", "bool"]:
                     self._group_containers["boolean"].append(control)
-                elif parameter.type in ["multi"]:
-                    self._group_containers["multi"].append(control)
                 else:
+                    # 多选和其他类型直接添加到列表
                     self.list_view.controls.append(control)
 
-        # 添加分组控件
+        # 添加布尔分组控件
         self._add_grouped_controls()
 
         # 构建完成后从状态加载值
         self.load_from_state()
 
     def _add_grouped_controls(self):
-        """添加分组后的控件（布尔和多选）。"""
+        """添加分组后的控件（只有布尔）。"""
         # 处理布尔控件分组
         if self._group_containers["boolean"]:
             # 提取所有开关的标签和控件
@@ -145,21 +142,6 @@ class ParameterPanel:
                 # 创建开关组容器
                 switch_group = self._create_switch_group(switches)
                 self.list_view.controls.append(switch_group)
-
-        # 处理多选控件分组
-        if self._group_containers["multi"]:
-            # 提取所有复选框
-            checkboxes = []
-            for container in self._group_containers["multi"]:
-                if isinstance(container.content, ft.Column):
-                    for child in container.content.controls:
-                        if isinstance(child, ft.Checkbox):
-                            checkboxes.append(child)
-
-            if checkboxes:
-                # 创建多选组容器
-                multi_group = self._create_multi_choice_group(checkboxes)
-                self.list_view.controls.append(multi_group)
 
     def _create_switch_group(self, switches: list[ft.Switch]) -> ft.Container:
         """创建开关组容器。"""
@@ -191,42 +173,12 @@ class ParameterPanel:
             margin=ft.Margin(0, 5, 0, 5),
         )
 
-    def _create_multi_choice_group(self, checkboxes: list[ft.Checkbox]) -> ft.Container:
-        """创建多选组容器。"""
-        checkbox_row = ft.Row(
-            controls=checkboxes,
-            wrap=True,  # 自动换行
-            spacing=15,
-            run_spacing=8,
-            expand=True,
-        )
-
-        return ft.Container(
-            content=ft.Column(
-                controls=[
-                    ft.Text(
-                        "多选选项",
-                        weight=ft.FontWeight.BOLD,
-                        size=14,
-                    ),
-                    ft.Divider(height=1),
-                    checkbox_row,
-                ],
-                spacing=5,
-            ),
-            padding=10,
-            border=ft.Border.all(1, ft.Colors.GREY_400),
-            border_radius=8,
-            margin=ft.Margin(0, 5, 0, 5),
-        )
-
     def clear(self):
         """清空参数面板。"""
         self.list_view.controls.clear()
         self.parameter_controls.clear()
         self._group_containers = {
             "boolean": [],
-            "multi": [],
         }
 
     def load_from_state(self):
@@ -249,12 +201,9 @@ class ParameterPanel:
                 )
             elif isinstance(control, ft.Switch):
                 control.value = bool(value)
-            elif isinstance(control, ft.Column):
-                # 多选 - checkboxes
-                selected_values = set(value) if isinstance(value, list) else set()
-                for checkbox in control.controls:
-                    if isinstance(checkbox, ft.Checkbox):
-                        checkbox.value = checkbox.label in selected_values
+            elif isinstance(control, ft.Container):
+                # 多选 - 在 Container 中查找 Checkbox
+                self._load_multi_choice_value(control, value)
             elif isinstance(control, ft.Row):
                 # 文件/目录 - 在 Row 中查找 TextField
                 for child in control.controls:
@@ -262,6 +211,22 @@ class ParameterPanel:
                         child.value = str(value) if value is not None else self._EMPTY_DISPLAY
                         break
         tool_state.mark_clean()
+
+    def _load_multi_choice_value(self, container: ft.Container, value):
+        """加载多选参数值。"""
+        selected_values = set(value) if isinstance(value, list) else set()
+        
+        # 遍历 Container 的内容
+        if isinstance(container.content, ft.Column):
+            for child in container.content.controls:
+                if isinstance(child, ft.Row):
+                    # 在 Row 中查找 Checkbox
+                    for checkbox in child.controls:
+                        if isinstance(checkbox, ft.Checkbox):
+                            checkbox.value = checkbox.label in selected_values
+                elif isinstance(child, ft.Checkbox):
+                    # 直接是 Checkbox
+                    child.value = child.label in selected_values
 
     def _update_state(self, param_id: str, value: object):
         """更新 ToolState，并触发状态保存和命令更新。"""
@@ -436,7 +401,7 @@ class ParameterPanel:
     # ---------------------------------------------------------
 
     def _build_multi_choice(self, parameter: Parameter) -> ft.Control:
-        """构建多选参数控件。"""
+        """构建多选参数控件 - 每个多选独立成组，选项水平排列。"""
         value = self._get_parameter_value(parameter)
 
         selected = set()
@@ -448,7 +413,7 @@ class ParameterPanel:
         def on_checkbox_change(e: ft.Event[ft.Checkbox]):
             # 获取同一组所有复选框的值
             parent = e.control.parent
-            if parent and isinstance(parent, ft.Column):
+            if parent and isinstance(parent, ft.Row):
                 selected_values = [
                     checkbox.label for checkbox in parent.controls 
                     if isinstance(checkbox, ft.Checkbox) and checkbox.value
@@ -463,14 +428,41 @@ class ParameterPanel:
             )
             checkboxes.append(checkbox)
 
-        # 返回包含所有复选框的列，稍后会被统一分组
+        # 选项水平排列，自动换行
+        checkbox_row = ft.Row(
+            controls=checkboxes,
+            wrap=True,
+            spacing=15,
+            run_spacing=8,
+            expand=True,
+        )
+
+        # 显示参数信息
+        title = ft.Text(
+            f"{parameter.label} *" if parameter.required else parameter.label,
+            weight=ft.FontWeight.BOLD,
+            size=14,
+        )
+
+        controls = [title]
+        if parameter.description:
+            controls.append(ft.Text(
+                parameter.description,
+                size=12,
+                color=ft.Colors.GREY_600,
+            ))
+        controls.append(ft.Divider(height=1))
+        controls.append(checkbox_row)
+
         return ft.Container(
             content=ft.Column(
-                controls=checkboxes,
-                spacing=2,
+                controls=controls,
+                spacing=5,
             ),
-            # 添加隐藏的标签信息，用于分组显示
-            data={"type": "multi", "label": parameter.label},
+            padding=10,
+            border=ft.Border.all(1, ft.Colors.GREY_400),
+            border_radius=8,
+            margin=ft.Margin(0, 5, 0, 5),
         )
 
     # ---------------------------------------------------------
