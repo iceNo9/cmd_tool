@@ -122,13 +122,25 @@ class ParameterPanel:
             expand=True,
         )
 
+        async def handle_pick_files(
+            e: ft.Event[ft.IconButton],
+        ):
+            files = await self.file_picker.pick_files(
+                allow_multiple=False,
+            )
+
+            if files:
+                value = files[0].path
+
+                field.value = value
+
+            else:
+                field.value = ""
+
         button = ft.IconButton(
             icon=ft.Icons.FILE_OPEN,
             tooltip="选择文件",
-            on_click=lambda e: self._pick_file(
-                field,
-                parameter,
-            ),
+            on_click=handle_pick_files,
         )
 
         return self._wrap_parameter(
@@ -153,13 +165,13 @@ class ParameterPanel:
             expand=True,
         )
 
+        async def handle_get_directory_path(e: ft.Event[ft.Button]):
+            field.value = await self.file_picker.get_directory_path()
+
         button = ft.IconButton(
             icon=ft.Icons.FOLDER_OPEN,
             tooltip="选择目录",
-            on_click=lambda e: self._pick_directory(
-                field,
-                parameter,
-            ),
+            on_click=handle_get_directory_path,
         )
 
         return self._wrap_parameter(
@@ -276,8 +288,7 @@ class ParameterPanel:
             # Flet 的 allowed_extensions 使用扩展名本体，
             # 推荐传 ["txt", "py"]，而不是 [".txt", ".py"]
             allowed_extensions = [
-                extension.lstrip(".")
-                for extension in parameter.file_types
+                extension.lstrip(".") for extension in parameter.file_types
             ]
 
         files = await self.file_picker.pick_files(
