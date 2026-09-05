@@ -3,9 +3,7 @@ name: Build Flet App
 on:
   push:
     tags:
-      - '*'  
-  pull_request:
-    branches: [ "main" ]
+      - 'v*'
   workflow_dispatch:
 
 env:
