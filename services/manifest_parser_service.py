@@ -1,4 +1,4 @@
-# services\manifest_parser_service.py
+# services/manifest_parser_service.py
 
 """
 Manifest 解析服务
@@ -28,6 +28,7 @@ Example:
     >>> print(manifest.metadata.name)
 """
 
+import re
 import time
 from pathlib import Path
 from typing import Any, ClassVar
@@ -48,7 +49,7 @@ from utils.paths import get_log_dir
 # 创建该模块专用的日志记录器
 logger = get_logger(
     name="manifest_parser",
-	log_dir=get_log_dir() / "logs",
+    log_dir=get_log_dir() / "logs",
     fmt_type="detailed",
     console_level=20,  # INFO
     file_level=10,  # DEBUG
@@ -88,10 +89,18 @@ class ManifestParser:
     }
 
     # 必需的 metadata 子字段
-    REQUIRED_METADATA_FIELDS: ClassVar[set[str]] = {"id", "name", "version"}
+    REQUIRED_METADATA_FIELDS: ClassVar[set[str]] = {
+        "id",
+        "name",
+        "version",
+    }
 
     # 必需的 parameter 子字段
-    REQUIRED_PARAMETER_FIELDS: ClassVar[set[str]] = {"id", "label", "type"}
+    REQUIRED_PARAMETER_FIELDS: ClassVar[set[str]] = {
+        "id",
+        "label",
+        "type",
+    }
 
     def parse(self, path: str | Path) -> Manifest:
         """
@@ -181,7 +190,8 @@ class ManifestParser:
                     f"实际为: {type(data).__name__}"
                 )
                 raise ManifestParseError(
-                    f"Manifest 文件格式错误，应为字典结构，实际为: {type(data).__name__}"
+                    f"Manifest 文件格式错误，应为字典结构，"
+                    f"实际为: {type(data).__name__}"
                 )
 
             logger.debug(f"YAML 解析成功，包含 {len(data)} 个顶层字段")
@@ -208,29 +218,51 @@ class ManifestParser:
             ManifestParseError: 缺少必要字段或数据格式错误
         """
         logger.debug("验证 manifest 必要字段")
+
         # 验证必要字段
-        self._validate_required_fields(data, self.REQUIRED_FIELDS, "manifest")
+        self._validate_required_fields(
+            data,
+            self.REQUIRED_FIELDS,
+            "manifest",
+        )
+
         logger.debug("Manifest 必要字段验证通过")
 
         # 解析各子模块
         logger.debug("开始解析 metadata")
         metadata = self._parse_metadata(data["metadata"])
-        logger.debug(f"Metadata 解析完成: {metadata.name} (ID: {metadata.id})")
+        logger.debug(
+            f"Metadata 解析完成: "
+            f"{metadata.name} (ID: {metadata.id})"
+        )
 
         logger.debug("开始解析 runtime")
         runtime = self._parse_runtime(data["runtime"])
-        logger.debug(f"Runtime 解析完成: {runtime.language} - {runtime.entry}")
+        logger.debug(
+            f"Runtime 解析完成: "
+            f"{runtime.language} - {runtime.entry}"
+        )
 
         logger.debug("开始解析 command")
         command = self._parse_command(data["command"])
-        logger.debug(f"Command 解析完成: {command.executable}")
+        logger.debug(
+            f"Command 解析完成: {command.executable}"
+        )
 
         logger.debug("开始解析 parameters")
-        parameters = self._parse_parameters(data.get("parameters", []))
-        logger.debug(f"Parameters 解析完成，共 {len(parameters)} 个参数")
+        parameters = self._parse_parameters(
+            data.get("parameters", [])
+        )
+        logger.debug(
+            f"Parameters 解析完成，共 {len(parameters)} 个参数"
+        )
 
         # 构建完整的 Manifest 对象
-        logger.info(f"构建 Manifest 对象 - schema_version: {data['schema_version']}")
+        logger.info(
+            f"构建 Manifest 对象 - "
+            f"schema_version: {data['schema_version']}"
+        )
+
         return Manifest(
             schema_version=data["schema_version"],
             metadata=metadata,
@@ -239,7 +271,10 @@ class ManifestParser:
             parameters=parameters,
         )
 
-    def _parse_metadata(self, data: dict[str, Any]) -> Metadata:
+    def _parse_metadata(
+        self,
+        data: dict[str, Any],
+    ) -> Metadata:
         """
         解析元数据信息
 
@@ -250,11 +285,26 @@ class ManifestParser:
             Metadata: 元数据对象
 
         Raises:
-            ManifestParseError: 缺少必要字段
+            ManifestParseError: 缺少必要字段或字段格式非法
         """
-        logger.debug(f"验证 metadata 必要字段: {self.REQUIRED_METADATA_FIELDS}")
-        self._validate_required_fields(data, self.REQUIRED_METADATA_FIELDS, "metadata")
+        logger.debug(
+            f"验证 metadata 必要字段: "
+            f"{self.REQUIRED_METADATA_FIELDS}"
+        )
+
+        self._validate_required_fields(
+            data,
+            self.REQUIRED_METADATA_FIELDS,
+            "metadata",
+        )
+
         logger.debug("Metadata 必要字段验证通过")
+
+        # 验证插件 ID
+        self._validate_plugin_id(data["id"])
+
+        # 验证插件版本
+        self._validate_plugin_version(data["version"])
 
         metadata = Metadata(
             id=data["id"],
@@ -268,12 +318,196 @@ class ManifestParser:
             f"ID: {metadata.id}, "
             f"名称: {metadata.name}, "
             f"版本: {metadata.version}, "
-            f"描述: {metadata.description if metadata.description else '(无)'}"
+            f"描述: "
+            f"{metadata.description if metadata.description else '(无)'}"
         )
 
         return metadata
 
-    def _parse_runtime(self, data: dict[str, Any]) -> Runtime:
+    @staticmethod
+    def _validate_plugin_id(plugin_id: Any) -> None:
+        """
+        验证插件 ID 是否合法。
+
+        插件 ID 会作为插件目录名使用，因此禁止：
+            - 非字符串
+            - 空字符串
+            - .
+            - ..
+            - 路径分隔符
+            - 绝对路径
+            - Windows 驱动器路径
+
+        允许：
+            - my-plugin
+            - my_plugin
+            - com.example.plugin
+            - plugin.v1
+
+        Args:
+            plugin_id: 插件 ID
+
+        Raises:
+            ManifestParseError: ID 不合法
+        """
+        if not isinstance(plugin_id, str):
+            logger.error(
+                f"metadata.id 必须是字符串，"
+                f"实际为: {type(plugin_id).__name__}"
+            )
+            raise ManifestParseError(
+                "metadata.id 必须是字符串"
+            )
+
+        plugin_id = plugin_id.strip()
+
+        if not plugin_id:
+            logger.error("metadata.id 不能为空")
+            raise ManifestParseError(
+                "metadata.id 不能为空"
+            )
+
+        if plugin_id in {".", ".."}:
+            logger.error(
+                f"metadata.id 不能为特殊目录名: {plugin_id!r}"
+            )
+            raise ManifestParseError(
+                f"metadata.id 不能为特殊目录名: {plugin_id!r}"
+            )
+
+        # 无论运行平台是什么，都禁止路径分隔符
+        if "/" in plugin_id or "\\" in plugin_id:
+            logger.error(
+                f"metadata.id 不能包含路径分隔符: {plugin_id!r}"
+            )
+            raise ManifestParseError(
+                f"metadata.id 不能包含路径分隔符: {plugin_id!r}"
+            )
+
+        path = Path(plugin_id)
+
+        # 禁止绝对路径
+        if path.is_absolute():
+            logger.error(
+                f"metadata.id 不能是绝对路径: {plugin_id!r}"
+            )
+            raise ManifestParseError(
+                f"metadata.id 不能是绝对路径: {plugin_id!r}"
+            )
+
+        # Windows 驱动器路径，例如 C:xxx
+        if path.drive:
+            logger.error(
+                f"metadata.id 不能包含驱动器路径: {plugin_id!r}"
+            )
+            raise ManifestParseError(
+                f"metadata.id 不能包含驱动器路径: {plugin_id!r}"
+            )
+
+        logger.debug(
+            f"插件 ID 验证通过: {plugin_id}"
+        )
+
+    @staticmethod
+    def _validate_plugin_version(version: Any) -> None:
+        """
+        验证插件版本是否合法。
+
+        使用语义化版本（SemVer）格式：
+
+            MAJOR.MINOR.PATCH
+
+        例如：
+            1.0.0       ✅
+            1.2.3       ✅
+            10.20.30    ✅
+            1.0         ❌
+            1           ❌
+            v1.0.0      ❌
+            abc         ❌
+
+        同时支持标准 SemVer 的：
+
+            1.0.0-alpha
+            1.0.0-beta.1
+            1.0.0-rc.1
+            1.0.0+build.1
+            1.0.0-rc.1+build.1
+
+        Args:
+            version: 插件版本
+
+        Raises:
+            ManifestParseError: 版本不合法
+        """
+        if not isinstance(version, str):
+            logger.error(
+                f"metadata.version 必须是字符串，"
+                f"实际为: {type(version).__name__}"
+            )
+            raise ManifestParseError(
+                "metadata.version 必须是字符串"
+            )
+
+        version = version.strip()
+
+        if not version:
+            logger.error(
+                "metadata.version 不能为空"
+            )
+            raise ManifestParseError(
+                "metadata.version 不能为空"
+            )
+
+        # SemVer 3.0.0 基本格式：
+        #
+        # MAJOR.MINOR.PATCH
+        # [-PRERELEASE]
+        # [+BUILD]
+        #
+        # 不引入额外依赖。
+        semver_pattern = re.compile(
+            r"^(0|[1-9]\d*)\."
+            r"(0|[1-9]\d*)\."
+            r"(0|[1-9]\d*)"
+            r"(?:-"
+            r"(?:"
+            r"(?:0|[1-9]\d*)"
+            r"|"
+            r"(?:[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)"
+            r")"
+            r"(?:\."
+            r"(?:"
+            r"(?:0|[1-9]\d*)"
+            r"|"
+            r"(?:[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)"
+            r")"
+            r")*"
+            r")?"
+            r"(?:\+"
+            r"[0-9A-Za-z-]+"
+            r"(?:\.[0-9A-Za-z-]+)*"
+            r")?$"
+        )
+
+        if not semver_pattern.fullmatch(version):
+            logger.error(
+                f"metadata.version 不是合法的 SemVer: "
+                f"{version!r}"
+            )
+            raise ManifestParseError(
+                f"metadata.version 不是合法的 SemVer: "
+                f"{version!r}"
+            )
+
+        logger.debug(
+            f"插件版本验证通过: {version}"
+        )
+
+    def _parse_runtime(
+        self,
+        data: dict[str, Any],
+    ) -> Runtime:
         """
         解析运行时配置
 
@@ -286,35 +520,65 @@ class ManifestParser:
         Raises:
             ManifestParseError: 缺少 language 或 entry 字段
         """
-        logger.debug("验证 runtime 必要字段: language, entry")
+        logger.debug(
+            "验证 runtime 必要字段: language, entry"
+        )
 
         if "language" not in data:
-            logger.error("runtime 缺少必要字段: language")
-            raise ManifestParseError("runtime 缺少必要字段: language")
+            logger.error(
+                "runtime 缺少必要字段: language"
+            )
+            raise ManifestParseError(
+                "runtime 缺少必要字段: language"
+            )
+
         if "entry" not in data:
-            logger.error("runtime 缺少必要字段: entry")
-            raise ManifestParseError("runtime 缺少必要字段: entry")
+            logger.error(
+                "runtime 缺少必要字段: entry"
+            )
+            raise ManifestParseError(
+                "runtime 缺少必要字段: entry"
+            )
 
         entry = data["entry"]
-        
+
         # entry 必须是列表
         if not isinstance(entry, list):
-            logger.error(f"runtime.entry 必须是列表，实际为 {type(entry).__name__}")
-            raise ManifestParseError(
-                f"runtime.entry 必须是列表，实际为 {type(entry).__name__}"
+            logger.error(
+                f"runtime.entry 必须是列表，"
+                f"实际为 {type(entry).__name__}"
             )
-        
+            raise ManifestParseError(
+                f"runtime.entry 必须是列表，"
+                f"实际为 {type(entry).__name__}"
+            )
+
         # 验证列表中的元素都是字符串
-        if not all(isinstance(item, str) for item in entry):
-            logger.error("runtime.entry 列表中的元素必须是字符串")
-            raise ManifestParseError("runtime.entry 列表中的元素必须是字符串")
-        
+        if not all(
+            isinstance(item, str)
+            for item in entry
+        ):
+            logger.error(
+                "runtime.entry 列表中的元素必须是字符串"
+            )
+            raise ManifestParseError(
+                "runtime.entry 列表中的元素必须是字符串"
+            )
+
         # 验证列表不为空
         if not entry:
-            logger.error("runtime.entry 列表不能为空")
-            raise ManifestParseError("runtime.entry 列表不能为空")
+            logger.error(
+                "runtime.entry 列表不能为空"
+            )
+            raise ManifestParseError(
+                "runtime.entry 列表不能为空"
+            )
 
-        runtime = Runtime(language=data["language"], entry=entry)
+        runtime = Runtime(
+            language=data["language"],
+            entry=entry,
+        )
+
         logger.debug(
             f"Runtime 对象创建成功 - "
             f"语言: {runtime.language}, "
@@ -323,7 +587,10 @@ class ManifestParser:
 
         return runtime
 
-    def _parse_command(self, data: dict[str, Any]) -> Command:
+    def _parse_command(
+        self,
+        data: dict[str, Any],
+    ) -> Command:
         """
         解析命令配置
 
@@ -336,16 +603,31 @@ class ManifestParser:
         Raises:
             ManifestParseError: 缺少 executable 或 workdir 字段
         """
-        logger.debug("验证 command 必要字段: executable, workdir")
+        logger.debug(
+            "验证 command 必要字段: executable, workdir"
+        )
 
         if "executable" not in data:
-            logger.error("command 缺少必要字段: executable")
-            raise ManifestParseError("command 缺少必要字段: executable")
-        if "workdir" not in data:
-            logger.error("command 缺少必要字段: workdir")
-            raise ManifestParseError("command 缺少必要字段: workdir")
+            logger.error(
+                "command 缺少必要字段: executable"
+            )
+            raise ManifestParseError(
+                "command 缺少必要字段: executable"
+            )
 
-        command = Command(executable=data["executable"], workdir=data["workdir"])
+        if "workdir" not in data:
+            logger.error(
+                "command 缺少必要字段: workdir"
+            )
+            raise ManifestParseError(
+                "command 缺少必要字段: workdir"
+            )
+
+        command = Command(
+            executable=data["executable"],
+            workdir=data["workdir"],
+        )
+
         logger.debug(
             f"Command 对象创建成功 - "
             f"可执行文件: {command.executable}, "
@@ -354,7 +636,10 @@ class ManifestParser:
 
         return command
 
-    def _parse_parameters(self, data: list[dict[str, Any]]) -> list[Parameter]:
+    def _parse_parameters(
+        self,
+        data: list[dict[str, Any]],
+    ) -> list[Parameter]:
         """
         解析参数列表
 
@@ -367,28 +652,53 @@ class ManifestParser:
         Raises:
             ManifestParseError: 参数格式错误或缺少必要字段
         """
-        logger.info(f"开始解析参数列表，共 {len(data)} 个参数")
+        logger.info(
+            f"开始解析参数列表，共 {len(data)} 个参数"
+        )
+
         parameters = []
 
         for i, item in enumerate(data):
-            logger.debug(f"解析第 {i + 1} 个参数: {item.get('id', '未知ID')}")
+            logger.debug(
+                f"解析第 {i + 1} 个参数: "
+                f"{item.get('id', '未知ID')}"
+            )
+
             try:
-                parameter = self._parse_single_parameter(item, i)
+                parameter = self._parse_single_parameter(
+                    item,
+                    i,
+                )
+
                 parameters.append(parameter)
+
                 logger.debug(
                     f"参数 {i + 1} 解析成功 - "
                     f"ID: {parameter.id}, "
                     f"类型: {parameter.type}, "
                     f"必需: {parameter.required}"
                 )
-            except Exception as e:
-                logger.exception(f"解析第 {i + 1} 个参数时出错")
-                raise ManifestParseError(f"解析第 {i + 1} 个参数时出错: {e}")
 
-        logger.info(f"参数列表解析完成，成功解析 {len(parameters)} 个参数")
+            except Exception as e:
+                logger.exception(
+                    f"解析第 {i + 1} 个参数时出错"
+                )
+                raise ManifestParseError(
+                    f"解析第 {i + 1} 个参数时出错: {e}"
+                )
+
+        logger.info(
+            f"参数列表解析完成，"
+            f"成功解析 {len(parameters)} 个参数"
+        )
+
         return parameters
 
-    def _parse_single_parameter(self, item: dict[str, Any], index: int) -> Parameter:
+    def _parse_single_parameter(
+        self,
+        item: dict[str, Any],
+        index: int,
+    ) -> Parameter:
         """
         解析单个参数配置
 
@@ -402,21 +712,36 @@ class ManifestParser:
         Raises:
             ManifestParseError: 参数缺少必要字段
         """
-        param_id = item.get("id", f"索引{index}")
-        logger.debug(f"验证参数 {param_id} 的必要字段")
+        param_id = item.get(
+            "id",
+            f"索引{index}",
+        )
+
+        logger.debug(
+            f"验证参数 {param_id} 的必要字段"
+        )
 
         # 验证必要字段
         self._validate_required_fields(
-            item, self.REQUIRED_PARAMETER_FIELDS, f"parameter[{index}]"
+            item,
+            self.REQUIRED_PARAMETER_FIELDS,
+            f"parameter[{index}]",
         )
-        logger.debug(f"参数 {param_id} 必要字段验证通过")
+
+        logger.debug(
+            f"参数 {param_id} 必要字段验证通过"
+        )
 
         # 解析可选的 CLI 配置
         if "cli" in item:
-            logger.debug(f"参数 {param_id} 包含 CLI 配置")
+            logger.debug(
+                f"参数 {param_id} 包含 CLI 配置"
+            )
             cli = self._parse_cli(item["cli"])
         else:
-            logger.debug(f"参数 {param_id} 不包含 CLI 配置")
+            logger.debug(
+                f"参数 {param_id} 不包含 CLI 配置"
+            )
             cli = None
 
         # 构建 Parameter 对象
@@ -446,7 +771,10 @@ class ManifestParser:
 
         return parameter
 
-    def _parse_cli(self, data: dict[str, Any]) -> CLI | None:
+    def _parse_cli(
+        self,
+        data: dict[str, Any],
+    ) -> CLI | None:
         """
         解析 CLI 配置
 
@@ -460,21 +788,39 @@ class ManifestParser:
             ManifestParseError: CLI 配置缺少 flag 字段
         """
         if data is None:
-            logger.debug("CLI 配置为空，返回 None")
+            logger.debug(
+                "CLI 配置为空，返回 None"
+            )
             return None
 
-        logger.debug("验证 CLI 配置必要字段: flag")
-        if "flag" not in data:
-            logger.error("CLI 配置缺少必要字段: flag")
-            raise ManifestParseError("CLI 配置缺少必要字段: flag")
+        logger.debug(
+            "验证 CLI 配置必要字段: flag"
+        )
 
-        cli = CLI(flag=data["flag"])
-        logger.debug(f"CLI 对象创建成功 - 标志: {cli.flag}")
+        if "flag" not in data:
+            logger.error(
+                "CLI 配置缺少必要字段: flag"
+            )
+            raise ManifestParseError(
+                "CLI 配置缺少必要字段: flag"
+            )
+
+        cli = CLI(
+            flag=data["flag"]
+        )
+
+        logger.debug(
+            f"CLI 对象创建成功 - "
+            f"标志: {cli.flag}"
+        )
 
         return cli
 
     def _validate_required_fields(
-        self, data: dict[str, Any], required_fields: set, context: str
+        self,
+        data: dict[str, Any],
+        required_fields: set,
+        context: str,
     ) -> None:
         """
         验证必要字段是否存在
@@ -487,25 +833,51 @@ class ManifestParser:
         Raises:
             ManifestParseError: 缺少必要字段
         """
-        logger.debug(f"验证 {context} 的必要字段: {required_fields}")
+        logger.debug(
+            f"验证 {context} 的必要字段: "
+            f"{required_fields}"
+        )
 
         if not isinstance(data, dict):
-            logger.error(f"{context} 应为字典类型，实际为: {type(data).__name__}")
+            logger.error(
+                f"{context} 应为字典类型，"
+                f"实际为: {type(data).__name__}"
+            )
             raise ManifestParseError(
-                f"{context} 应为字典类型，实际为: {type(data).__name__}"
+                f"{context} 应为字典类型，"
+                f"实际为: {type(data).__name__}"
             )
 
-        missing_fields = required_fields - set(data.keys())
-        if missing_fields:
-            missing_str = ", ".join(sorted(missing_fields))
-            logger.error(f"{context} 缺少必要字段: {missing_str}")
-            logger.debug(f"当前字段: {list(data.keys())}")
-            raise ManifestParseError(f"{context} 缺少必要字段: {missing_str}")
+        missing_fields = (
+            required_fields - set(data.keys())
+        )
 
-        logger.debug(f"{context} 字段验证通过，包含字段: {list(data.keys())}")
+        if missing_fields:
+            missing_str = ", ".join(
+                sorted(missing_fields)
+            )
+
+            logger.error(
+                f"{context} 缺少必要字段: {missing_str}"
+            )
+
+            logger.debug(
+                f"当前字段: {list(data.keys())}"
+            )
+
+            raise ManifestParseError(
+                f"{context} 缺少必要字段: {missing_str}"
+            )
+
+        logger.debug(
+            f"{context} 字段验证通过，"
+            f"包含字段: {list(data.keys())}"
+        )
 
     @staticmethod
-    def validate_manifest_schema(data: dict[str, Any]) -> list[str]:
+    def validate_manifest_schema(
+        data: dict[str, Any],
+    ) -> list[str]:
         """
         静态方法：验证 manifest 数据结构的完整性
 
@@ -521,42 +893,76 @@ class ManifestParser:
             ...     for error in errors:
             ...         print(f"验证错误: {error}")
         """
-        logger.info("开始验证 manifest schema")
+        logger.info(
+            "开始验证 manifest schema"
+        )
+
         errors = []
         parser = ManifestParser()
 
         try:
-            parser._validate_required_fields(data, parser.REQUIRED_FIELDS, "manifest")
-            logger.debug("Schema 验证: manifest 顶层字段通过")
+            parser._validate_required_fields(
+                data,
+                parser.REQUIRED_FIELDS,
+                "manifest",
+            )
+            logger.debug(
+                "Schema 验证: "
+                "manifest 顶层字段通过"
+            )
+
         except ManifestParseError as e:
-            logger.error(f"Schema 验证失败: {e}")
+            logger.error(
+                f"Schema 验证失败: {e}"
+            )
             errors.append(str(e))
             return errors
 
         try:
-            parser._parse_metadata(data.get("metadata", {}))
-            logger.debug("Schema 验证: metadata 字段通过")
+            parser._parse_metadata(
+                data.get("metadata", {})
+            )
+            logger.debug(
+                "Schema 验证: metadata 字段通过"
+            )
+
         except ManifestParseError as e:
-            logger.error(f"Schema 验证失败 (metadata): {e}")
+            logger.error(
+                f"Schema 验证失败 (metadata): {e}"
+            )
             errors.append(str(e))
 
         try:
-            parser._parse_parameters(data.get("parameters", []))
-            logger.debug("Schema 验证: parameters 字段通过")
+            parser._parse_parameters(
+                data.get("parameters", [])
+            )
+            logger.debug(
+                "Schema 验证: parameters 字段通过"
+            )
+
         except ManifestParseError as e:
-            logger.error(f"Schema 验证失败 (parameters): {e}")
+            logger.error(
+                f"Schema 验证失败 (parameters): {e}"
+            )
             errors.append(str(e))
 
         if errors:
-            logger.warning(f"Schema 验证完成，发现 {len(errors)} 个错误")
+            logger.warning(
+                f"Schema 验证完成，"
+                f"发现 {len(errors)} 个错误"
+            )
         else:
-            logger.info("Schema 验证通过")
+            logger.info(
+                "Schema 验证通过"
+            )
 
         return errors
 
 
 # 便捷函数
-def parse_manifest(path: str | Path) -> Manifest:
+def parse_manifest(
+    path: str | Path,
+) -> Manifest:
     """
     便捷函数：快速解析 manifest 文件
 
@@ -569,12 +975,18 @@ def parse_manifest(path: str | Path) -> Manifest:
     Example:
         >>> manifest = parse_manifest("plugin/manifest.yml")
     """
-    logger.info(f"便捷函数 parse_manifest 被调用，路径: {path}")
+    logger.info(
+        f"便捷函数 parse_manifest 被调用，路径: {path}"
+    )
+
     parser = ManifestParser()
+
     return parser.parse(path)
 
 
-def parse_manifests(paths: list[str | Path]) -> list[Manifest]:
+def parse_manifests(
+    paths: list[str | Path],
+) -> list[Manifest]:
     """
     便捷函数：批量解析 manifest 文件
 
@@ -590,7 +1002,11 @@ def parse_manifests(paths: list[str | Path]) -> list[Manifest]:
         ...     "plugin2/manifest.yml"
         ... ])
     """
-    logger.info(f"便捷函数 parse_manifests 被调用，路径数量: {len(paths)}")
+    logger.info(
+        f"便捷函数 parse_manifests 被调用，"
+        f"路径数量: {len(paths)}"
+    )
+
     parser = ManifestParser()
     manifests = []
 
@@ -598,13 +1014,24 @@ def parse_manifests(paths: list[str | Path]) -> list[Manifest]:
         try:
             manifest = parser.parse(path)
             manifests.append(manifest)
-            logger.debug(f"成功解析: {path}")
-        except Exception as e:
-            logger.error(f"解析失败: {path}, 错误: {e}")
+
+            logger.debug(
+                f"成功解析: {path}"
+            )
+
+        except Exception:
+            logger.exception(
+                f"解析失败: {path}, 错误:"
+            )
+
             # 可以选择继续处理其他文件或重新抛出异常
             # 这里选择继续处理，但记录错误
             # 如果需要严格模式，可以取消下面的注释
             # raise
 
-    logger.info(f"批量解析完成，成功: {len(manifests)}/{len(paths)}")
+    logger.info(
+        f"批量解析完成，"
+        f"成功: {len(manifests)}/{len(paths)}"
+    )
+
     return manifests

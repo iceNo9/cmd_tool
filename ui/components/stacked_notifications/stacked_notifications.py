@@ -82,7 +82,7 @@ class NotificationManager:
         
         content_controls = [
             ft.Icon(style.icon, color=style.text_color, size=20),
-            ft.Text(message, color=style.text_color, size=14),
+            ft.Text(message, color=style.text_color, size=14,expand=True,),
         ]
         
         if action:
