@@ -586,7 +586,7 @@ class ManifestParser:
         )
 
         return runtime
-
+    
     def _parse_command(
         self,
         data: dict[str, Any],
@@ -623,18 +623,90 @@ class ManifestParser:
                 "command 缺少必要字段: workdir"
             )
 
+        # 解析可选的 shell 配置
+        shell = data.get("shell", "bash")
+
+        # 验证 shell 类型
+        self._validate_shell(shell)
+
         command = Command(
             executable=data["executable"],
             workdir=data["workdir"],
+            shell=shell,
         )
 
         logger.debug(
             f"Command 对象创建成功 - "
             f"可执行文件: {command.executable}, "
-            f"工作目录: {command.workdir}"
+            f"工作目录: {command.workdir}, "
+            f"Shell: {command.shell}"
         )
 
         return command
+
+    @staticmethod
+    def _validate_shell(shell: Any) -> None:
+        """
+        验证 Shell 环境类型是否合法。
+
+        支持的 Shell 类型：
+            - bash: Bourne Again Shell
+            - sh: Bourne Shell
+            - zsh: Z Shell
+            - powershell: PowerShell
+            - pwsh: PowerShell Core
+            - cmd: Windows 命令提示符
+            - fish: Friendly Interactive Shell
+
+        Args:
+            shell: Shell 环境类型
+
+        Raises:
+            ManifestParseError: Shell 类型不合法
+        """
+        if not isinstance(shell, str):
+            logger.error(
+                f"command.shell 必须是字符串，"
+                f"实际为: {type(shell).__name__}"
+            )
+            raise ManifestParseError(
+                "command.shell 必须是字符串"
+            )
+
+        shell = shell.strip().lower()
+
+        if not shell:
+            logger.error(
+                "command.shell 不能为空"
+            )
+            raise ManifestParseError(
+                "command.shell 不能为空"
+            )
+
+        # 支持的 Shell 类型列表
+        supported_shells = {
+            "bash",
+            "sh",
+            "zsh",
+            "powershell",
+            "pwsh",
+            "cmd",
+            "fish",
+        }
+
+        if shell not in supported_shells:
+            logger.error(
+                f"command.shell 不支持的类型: {shell!r}，"
+                f"支持的类型: {sorted(supported_shells)}"
+            )
+            raise ManifestParseError(
+                f"command.shell 不支持的类型: {shell!r}，"
+                f"支持的类型: {sorted(supported_shells)}"
+            )
+
+        logger.debug(
+            f"Shell 类型验证通过: {shell}"
+        )
 
     def _parse_parameters(
         self,
@@ -933,6 +1005,34 @@ class ManifestParser:
             errors.append(str(e))
 
         try:
+            parser._parse_runtime(
+                data.get("runtime", {})
+            )
+            logger.debug(
+                "Schema 验证: runtime 字段通过"
+            )
+
+        except ManifestParseError as e:
+            logger.error(
+                f"Schema 验证失败 (runtime): {e}"
+            )
+            errors.append(str(e))
+
+        try:
+            parser._parse_command(
+                data.get("command", {})
+            )
+            logger.debug(
+                "Schema 验证: command 字段通过"
+            )
+
+        except ManifestParseError as e:
+            logger.error(
+                f"Schema 验证失败 (command): {e}"
+            )
+            errors.append(str(e))
+
+        try:
             parser._parse_parameters(
                 data.get("parameters", [])
             )
@@ -957,7 +1057,6 @@ class ManifestParser:
             )
 
         return errors
-
 
 # 便捷函数
 def parse_manifest(

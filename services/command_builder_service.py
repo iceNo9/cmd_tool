@@ -12,6 +12,7 @@
     - 检查必填参数
     - 将参数转换为 CLI 参数
     - 构建最终命令字符串
+    - 根据 Shell 环境调整命令格式
 
 不负责：
     - GUI 界面更新
@@ -32,6 +33,7 @@
 
 from __future__ import annotations
 
+import shlex
 import subprocess
 
 from models.manifest import Manifest, Parameter
@@ -117,18 +119,126 @@ class CommandBuilderService:
             parts.extend(argument_parts)
 
         # ------------------------------------------------------------
-        # Windows 命令行格式化
+        # 根据 Shell 环境格式化命令
         # ------------------------------------------------------------
 
-        command = subprocess.list2cmdline(parts)
+        shell = manifest.command.shell.lower()
+        
+        logger.debug(
+            "使用 Shell 环境格式化命令: shell=%s",
+            shell,
+        )
+
+        if shell in {"powershell", "pwsh"}:
+            command = self._format_for_powershell(parts)
+        elif shell in {"cmd"}:
+            command = self._format_for_cmd(parts)
+        else:
+            # bash, sh, zsh, fish 等 Unix-like Shell
+            command = self._format_for_unix_shell(parts)
 
         logger.info(
-            "命令构建完成: tool_id=%s command=%s",
+            "命令构建完成: tool_id=%s shell=%s command=%s",
             manifest.metadata.id,
+            shell,
             command,
         )
 
         return command
+
+    # ====================================================================
+    # Shell 格式化方法
+    # ====================================================================
+
+    @staticmethod
+    def _format_for_unix_shell(parts: list[str]) -> str:
+        """
+        为 Unix-like Shell 格式化命令。
+
+        使用 shlex.join 进行 POSIX 兼容的引用。
+
+        Args:
+            parts: 命令部分列表
+
+        Returns:
+            str: 格式化后的命令字符串
+        """
+        return shlex.join(parts)
+
+    @staticmethod
+    def _format_for_powershell(parts: list[str]) -> str:
+        """
+        为 PowerShell 格式化命令。
+
+        PowerShell 使用不同的引用规则：
+        - 单引号用于字面量
+        - 双引号用于可扩展字符串
+        - 反引号用于转义
+
+        Args:
+            parts: 命令部分列表
+
+        Returns:
+            str: 格式化后的命令字符串
+        """
+        formatted_parts = []
+
+        for part in parts:
+            formatted_parts.append(
+                CommandBuilderService._powershell_quote(part)
+            )
+
+        return " ".join(formatted_parts)
+
+    @staticmethod
+    def _format_for_cmd(parts: list[str]) -> str:
+        """
+        为 Windows CMD 格式化命令。
+
+        CMD 使用不同的引用规则：
+        - 双引号用于包含空格的参数
+        - 特殊字符需要转义
+
+        Args:
+            parts: 命令部分列表
+
+        Returns:
+            str: 格式化后的命令字符串
+        """
+        # 使用 subprocess.list2cmdline 进行 Windows 兼容的引用
+        return subprocess.list2cmdline(parts)
+
+    @staticmethod
+    def _powershell_quote(arg: str) -> str:
+        """
+        为 PowerShell 引用参数。
+
+        根据参数内容决定使用单引号、双引号或不需要引号。
+
+        Args:
+            arg: 要引用的参数
+
+        Returns:
+            str: 引用后的参数
+        """
+        # 如果参数不包含特殊字符，直接返回
+        if not arg:
+            return "''"
+        
+        # 检查是否包含需要引用的字符
+        special_chars = set(' \t\n\r\v"\'`$(){}[],;|&<>#@')
+        
+        if not any(c in special_chars for c in arg):
+            return arg
+
+        # 如果包含单引号，使用双引号
+        if "'" in arg:
+            # 在双引号中，需要转义双引号和反引号
+            escaped = arg.replace('`', '``').replace('"', '`"')
+            return f'"{escaped}"'
+        
+        # 否则使用单引号（字面量）
+        return f"'{arg}'"
 
     # ====================================================================
     # 参数构建

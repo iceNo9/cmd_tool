@@ -82,6 +82,8 @@ class Command:
     workdir: str
     """工作目录路径，命令执行时的当前工作目录"""
 
+    shell: str = "bash"
+    """Shell 环境类型，默认为 bash"""
 
 @dataclass
 class CLI:
