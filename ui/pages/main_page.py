@@ -2,7 +2,7 @@
 
 import flet as ft
 
-from models.state import AppState
+from models.state import AppState, ToolState
 from services.command_builder_service import CommandBuilderService
 from services.manifest_parser_service import parse_manifests
 from services.plugin_import_export_service import (
@@ -16,6 +16,17 @@ from ui.components.project.parameter_panel import ParameterPanel
 from ui.components.project.tool_panel import ToolPanel
 from ui.components.stacked_notifications.stacked_notifications import (
     NotificationManager,
+)
+from utils.log import get_logger
+from utils.paths import get_log_dir
+
+# 创建该模块专用的日志记录器
+logger = get_logger(
+    name="main_page",
+    log_dir=get_log_dir() / "logs",
+    fmt_type="detailed",
+    console_level=20,  # INFO
+    file_level=10,  # DEBUG
 )
 
 
@@ -69,15 +80,140 @@ def build_main_page(page: ft.Page) -> None:
         para_panel.refresh()
         output_panel.refresh()
 
-    def reload_plugins():
-        """重新加载插件列表。"""
+    def add_new_plugins(new_manifests: list):
+        """增量添加新插件。"""
+        
+        for manifest in new_manifests:
+            tool_id = manifest.metadata.id
+            
+            # 添加到状态
+            if manifest not in state.manifests:
+                state.manifests.append(manifest)
+                logger.info(f"添加新插件: {tool_id}")
+            
+            # 初始化工具状态
+            if tool_id not in state.tool_states:
+                state.tool_states[tool_id] = ToolState(tool_id)
+                logger.debug(f"初始化插件状态: {tool_id}")
 
+    def remove_plugins(removed_ids: set):
+        """增量移除插件。"""
+        
+        for tool_id in removed_ids:
+            # 从清单中移除
+            state.manifests = [
+                m for m in state.manifests
+                if m.metadata.id != tool_id
+            ]
+            
+            # 移除工具状态
+            if tool_id in state.tool_states:
+                del state.tool_states[tool_id]
+                logger.debug(f"移除插件状态: {tool_id}")
+            
+            # 如果当前选中的插件被移除，切换选择
+            if state.selected_tool_id == tool_id:
+                state.selected_tool_id = (
+                    state.manifests[0].metadata.id
+                    if state.manifests
+                    else None
+                )
+                logger.info(f"选中插件已移除，切换到: {state.selected_tool_id}")
+
+    def update_plugins(updated_manifests: list):
+        """增量更新插件。"""
+        
+        for new_manifest in updated_manifests:
+            tool_id = new_manifest.metadata.id
+            
+            # 替换旧清单
+            for i, old_manifest in enumerate(state.manifests):
+                if old_manifest.metadata.id == tool_id:
+                    state.manifests[i] = new_manifest
+                    logger.info(f"更新插件: {tool_id}")
+                    break
+            
+            # 确保工具状态存在
+            if tool_id not in state.tool_states:
+                state.tool_states[tool_id] = ToolState(tool_id)
+
+    def sync_plugins():
+        """同步插件：只处理变更。"""
+        
+        # 重新发现插件
         paths = discover_plugins()
-        manifests = parse_manifests(paths)
-
-        state.manifests = manifests
-
-        tool_panel.refresh()
+        new_manifests = parse_manifests(paths)
+        
+        # 构建 ID 映射
+        old_map = {
+            m.metadata.id: m
+            for m in state.manifests
+        }
+        new_map = {
+            m.metadata.id: m
+            for m in new_manifests
+        }
+        
+        old_ids = set(old_map.keys())
+        new_ids = set(new_map.keys())
+        
+        # 找出变更
+        added_ids = new_ids - old_ids
+        removed_ids = old_ids - new_ids
+        common_ids = old_ids & new_ids
+        
+        # 找出更新的插件（版本变化）
+        updated_manifests = []
+        for tool_id in common_ids:
+            old_manifest = old_map[tool_id]
+            new_manifest = new_map[tool_id]
+            
+            if old_manifest.metadata.version != new_manifest.metadata.version:
+                updated_manifests.append(new_manifest)
+                logger.info(
+                    f"检测到插件更新: {tool_id} "
+                    f"({old_manifest.metadata.version} -> "
+                    f"{new_manifest.metadata.version})"
+                )
+        
+        # 应用变更
+        if added_ids:
+            added_manifests = [
+                new_map[tool_id] for tool_id in added_ids
+            ]
+            add_new_plugins(added_manifests)
+            logger.info(f"添加插件: {len(added_ids)} 个")
+        
+        if removed_ids:
+            remove_plugins(removed_ids)
+            logger.info(f"移除插件: {len(removed_ids)} 个")
+        
+        if updated_manifests:
+            update_plugins(updated_manifests)
+            logger.info(f"更新插件: {len(updated_manifests)} 个")
+        
+        # 如果有任何变更，刷新 UI
+        if added_ids or removed_ids or updated_manifests:
+            tool_panel.refresh()
+            
+            # 只有选中的插件受影响时才刷新详情面板
+            if (
+                state.selected_tool_id in added_ids
+                or state.selected_tool_id in updated_manifests
+                or state.selected_tool_id in removed_ids
+            ):
+                info_panel.refresh()
+                para_panel.refresh()
+                output_panel.refresh()
+            
+            logger.info(
+                f"插件同步完成: "
+                f"添加 {len(added_ids)}, "
+                f"移除 {len(removed_ids)}, "
+                f"更新 {len(updated_manifests)}"
+            )
+        else:
+            logger.debug("没有检测到插件变更")
 
     def on_plugin_imported(paths: list[str]):
         """处理插件导入。"""
@@ -94,11 +230,11 @@ def build_main_page(page: ft.Page) -> None:
         )
 
         # ------------------------------------------------------------
-        # 导入完成后重新加载插件
+        # 导入完成后增量同步插件
         # ------------------------------------------------------------
 
         if result.success_count > 0:
-            reload_plugins()
+            sync_plugins()
 
         # ------------------------------------------------------------
         # 显示导入结果
@@ -139,10 +275,21 @@ def build_main_page(page: ft.Page) -> None:
         if not state.selected_tool_id:
             return
 
-        plugin_import_export_service.export_plugin(
+        result = plugin_import_export_service.export_plugin(
             state.selected_tool_id,
             export_dir,
         )
+
+        if result.success:
+            ntf.show(
+                f"插件导出成功：{result.message}",
+                type="success",
+            )
+        else:
+            ntf.show(
+                f"插件导出失败：{result.message}",
+                type="error",
+            )
 
     # 工具选择面板
     tool_panel = ToolPanel(

@@ -1,3 +1,4 @@
+# services\state_service.py
 """
 应用状态持久化服务
 
