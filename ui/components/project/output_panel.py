@@ -24,6 +24,10 @@ class OutputPanel:
     # 复制成功通知的最小间隔（秒）
     _COPY_TOAST_COOLDOWN = 1.0
 
+    # 剪贴板操作可能抛出的异常类型
+    # （Flet 未明确文档化，这里覆盖常见平台相关异常）
+    _CLIPBOARD_ERRORS = (OSError, RuntimeError, AssertionError)
+
     def __init__(
         self,
         state: AppState,
@@ -120,20 +124,21 @@ class OutputPanel:
             return
 
         async def copy_and_verify():
+            # ---- 写入剪贴板 ----
             try:
                 await self.clipboard.set(text)
-            except (OSError, RuntimeError, AssertionError) as exc:
+            except self._CLIPBOARD_ERRORS as exc:
                 self.ntf.show(f"复制失败: {exc!s}", type="error")
                 return
 
-            # 短暂延迟，确保剪贴板更新完成
+            # ---- 短暂延迟，确保剪贴板更新完成 ----
             await asyncio.sleep(0.1)
 
-            # 验证剪贴板内容
+            # ---- 验证剪贴板内容 ----
             try:
                 clipboard_text = await self.clipboard.get()
                 ok = clipboard_text == text
-            except (OSError, RuntimeError, AssertionError):
+            except self._CLIPBOARD_ERRORS:
                 # 某些平台不支持读取剪贴板，视为成功
                 ok = True
 

@@ -352,7 +352,7 @@ class ParameterPanel:
                 for choice in parameter.choices
             ],
             expand=True,
-            on_change=lambda e: self._update_state(
+            on_text_change=lambda e: self._update_state(
                 parameter.id,
                 e.control.value if e.control.value else None,
             ),
