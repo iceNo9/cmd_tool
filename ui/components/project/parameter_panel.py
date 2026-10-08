@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 import flet as ft
 
 from models.manifest import Parameter
@@ -6,13 +8,12 @@ from services.state_service import StateService
 from utils.log import get_logger
 from utils.paths import get_log_dir
 
-# 创建该模块专用的日志记录器
 logger = get_logger(
     name="parameter_panel",
     log_dir=get_log_dir() / "logs",
     fmt_type="detailed",
-    console_level=10,  # INFO
-    file_level=10,  # DEBUG
+    console_level=10,
+    file_level=10,
 )
 
 
@@ -20,12 +21,15 @@ class ParameterPanel:
     """CLI 参数输入面板。
 
     根据 Parameter.type 动态创建对应的输入控件。
+
+    交互约定：
+    - 输入控件在 on_blur / on_change 时同步值到 ToolState，
+      并触发命令重建。此过程不触碰剪贴板。
+    - 复制动作由 OutputPanel 的点击行为显式承担。
     """
 
-    # 默认空值显示
     _EMPTY_DISPLAY = ""
-    # 支持的类型映射
-    _TYPE_MAPPING = {
+    _TYPE_MAPPING: ClassVar[dict[str, str]] = {
         "string": "_build_string",
         "file": "_build_file",
         "directory": "_build_directory",
@@ -38,26 +42,20 @@ class ParameterPanel:
     }
 
     def __init__(
-        self, state: AppState, state_service: StateService, on_command_changed=None
+        self,
+        state: AppState,
+        state_service: StateService,
+        on_command_changed=None,
     ):
-        # app状态
         self.state = state
-
-        # tool 状态
-        self.parameter_controls: dict[str, ft.Control] = {}  # key: parameter.id
-
-        # 服务
+        self.parameter_controls: dict[str, ft.Control] = {}
         self.state_service = state_service
-
-        # 命令更新回调
         self.on_command_changed = on_command_changed
 
-        # 文件选择器
         self.file_picker = ft.FilePicker()
 
-        # 分组容器（用于布尔分组显示）
         self._group_containers = {
-            "boolean": [],  # 存储所有布尔控件，用于统一包装
+            "boolean": [],
         }
 
         self.list_view = ft.ListView(
@@ -69,10 +67,7 @@ class ParameterPanel:
         self.view = ft.Container(
             content=ft.Column(
                 controls=[
-                    ft.Text(
-                        "参数",
-                        weight=ft.FontWeight.BOLD,
-                    ),
+                    ft.Text("参数", weight=ft.FontWeight.BOLD),
                     ft.Divider(height=1),
                     self.list_view,
                 ],
@@ -86,7 +81,6 @@ class ParameterPanel:
             expand=True,
         )
 
-        # 初始化参数面板
         manifest = self.state.get_selected_manifest()
         if manifest and manifest.parameters:
             self.set_parameters(manifest.parameters)
@@ -103,7 +97,6 @@ class ParameterPanel:
 
     def set_parameters(self, parameters: list[Parameter]):
         """根据参数定义重新构建参数面板。"""
-        # 重置分组容器
         self._group_containers = {
             "boolean": [],
         }
@@ -112,24 +105,17 @@ class ParameterPanel:
             control = self._build_parameter(parameter)
             if control is not None:
                 self.parameter_controls[parameter.id] = control
-                # 对于布尔，暂存到分组列表
                 if parameter.type in ["boolean", "bool"]:
                     self._group_containers["boolean"].append(control)
                 else:
-                    # 多选和其他类型直接添加到列表
                     self.list_view.controls.append(control)
 
-        # 添加布尔分组控件
         self._add_grouped_controls()
-
-        # 构建完成后从状态加载值
-        self.load_from_state()        
+        self.load_from_state()
 
     def _add_grouped_controls(self):
         """添加分组后的控件（只有布尔）。"""
-        # 处理布尔控件分组
         if self._group_containers["boolean"]:
-            # 提取所有开关
             switches = []
             for container in self._group_containers["boolean"]:
                 if isinstance(container.content, ft.Column):
@@ -138,17 +124,15 @@ class ParameterPanel:
                             switches.append(child)
 
             if switches:
-                # 创建开关组容器（使用网格布局）
                 switch_group = self._create_switch_group(switches)
                 self.list_view.controls.append(switch_group)
 
     def _create_switch_group(self, switches: list[ft.Switch]) -> ft.Container:
         """创建开关组容器 - 使用网格布局。"""
-        # 使用 GridView 实现网格布局
         switch_grid = ft.GridView(
             controls=switches,
-            max_extent=200,  # 每个开关最大宽度
-            child_aspect_ratio=3.0,  # 宽高比
+            max_extent=200,
+            child_aspect_ratio=3.0,
             spacing=10,
             run_spacing=10,
             expand=True,
@@ -192,7 +176,6 @@ class ParameterPanel:
             if value is None:
                 continue
 
-            # 根据控件类型设置值
             if isinstance(control, ft.TextField):
                 control.value = str(value) if value is not None else self._EMPTY_DISPLAY
             elif isinstance(control, ft.Dropdown):
@@ -202,30 +185,27 @@ class ParameterPanel:
             elif isinstance(control, ft.Switch):
                 control.value = bool(value)
             elif isinstance(control, ft.Container):
-                # 多选 - 在 Container 中查找 Checkbox
                 self._load_multi_choice_value(control, value)
             elif isinstance(control, ft.Row):
-                # 文件/目录 - 在 Row 中查找 TextField
                 for child in control.controls:
                     if isinstance(child, ft.TextField):
-                        child.value = str(value) if value is not None else self._EMPTY_DISPLAY
+                        child.value = (
+                            str(value) if value is not None else self._EMPTY_DISPLAY
+                        )
                         break
         tool_state.mark_clean()
 
     def _load_multi_choice_value(self, container: ft.Container, value):
         """加载多选参数值。"""
         selected_values = set(value) if isinstance(value, list) else set()
-        
-        # 遍历 Container 的内容
+
         if isinstance(container.content, ft.Column):
             for child in container.content.controls:
                 if isinstance(child, ft.GridView):
-                    # 在 GridView 中查找 Checkbox
                     for checkbox in child.controls:
                         if isinstance(checkbox, ft.Checkbox):
                             checkbox.value = checkbox.label in selected_values
                 elif isinstance(child, ft.Checkbox):
-                    # 直接是 Checkbox
                     child.value = child.label in selected_values
 
     def _update_state(self, param_id: str, value: object):
@@ -234,7 +214,6 @@ class ParameterPanel:
         if tool_state is None:
             return
 
-        # 1. 更新 ToolState
         tool_state.set(param_id, value)
 
         logger.debug(
@@ -243,15 +222,12 @@ class ParameterPanel:
             value,
         )
 
-        # 2. 自动保存状态
         self.state_service.auto_save(self.state)
 
-        # 3. 通知外部重新生成命令
         if self.on_command_changed is not None:
             self.on_command_changed()
 
     def _build_parameter(self, parameter: Parameter) -> ft.Control | None:
-        """根据 Parameter.type 创建输入控件。"""
         builder_name = self._TYPE_MAPPING.get(parameter.type)
         if builder_name is None:
             return self._build_unsupported(parameter)
@@ -264,7 +240,6 @@ class ParameterPanel:
     # ---------------------------------------------------------
 
     def _build_string(self, parameter: Parameter) -> ft.Control:
-        """构建字符串参数控件。"""
         value = self._get_parameter_value(parameter)
 
         field = ft.TextField(
@@ -285,7 +260,6 @@ class ParameterPanel:
     # ---------------------------------------------------------
 
     def _build_file(self, parameter: Parameter) -> ft.Control:
-        """构建文件参数控件。"""
         value = self._get_parameter_value(parameter)
 
         field = ft.TextField(
@@ -293,7 +267,7 @@ class ParameterPanel:
             value="" if value is None else str(value),
             hint_text=parameter.description or None,
             expand=True,
-            on_change=lambda e: self._update_state(
+            on_blur=lambda e: self._update_state(
                 parameter.id,
                 e.control.value if e.control.value else None,
             ),
@@ -303,11 +277,10 @@ class ParameterPanel:
             files = await self.file_picker.pick_files(
                 allow_multiple=False,
             )
-
             if files:
-                value = files[0].path
-                field.value = value
-                self._update_state(parameter.id, value)
+                picked = files[0].path
+                field.value = picked
+                self._update_state(parameter.id, picked)
 
         button = ft.IconButton(
             icon=ft.Icons.FILE_OPEN,
@@ -318,10 +291,7 @@ class ParameterPanel:
         return self._wrap_parameter(
             parameter,
             ft.Row(
-                controls=[
-                    field,
-                    button,
-                ],
+                controls=[field, button],
                 spacing=5,
             ),
         )
@@ -331,7 +301,6 @@ class ParameterPanel:
     # ---------------------------------------------------------
 
     def _build_directory(self, parameter: Parameter) -> ft.Control:
-        """构建目录参数控件。"""
         value = self._get_parameter_value(parameter)
 
         field = ft.TextField(
@@ -339,7 +308,7 @@ class ParameterPanel:
             value="" if value is None else str(value),
             hint_text=parameter.description or None,
             expand=True,
-            on_change=lambda e: self._update_state(
+            on_blur=lambda e: self._update_state(
                 parameter.id,
                 e.control.value if e.control.value else None,
             ),
@@ -347,7 +316,6 @@ class ParameterPanel:
 
         async def handle_get_directory_path(e: ft.Event[ft.IconButton]):
             directory = await self.file_picker.get_directory_path()
-
             if directory:
                 field.value = directory
                 self._update_state(parameter.id, directory)
@@ -361,10 +329,7 @@ class ParameterPanel:
         return self._wrap_parameter(
             parameter,
             ft.Row(
-                controls=[
-                    field,
-                    button,
-                ],
+                controls=[field, button],
                 spacing=5,
             ),
         )
@@ -374,7 +339,6 @@ class ParameterPanel:
     # ---------------------------------------------------------
 
     def _build_single_choice(self, parameter: Parameter) -> ft.Control:
-        """构建单选参数控件。"""
         value = self._get_parameter_value(parameter)
 
         dropdown = ft.Dropdown(
@@ -388,7 +352,7 @@ class ParameterPanel:
                 for choice in parameter.choices
             ],
             expand=True,
-            on_text_change=lambda e: self._update_state(
+            on_change=lambda e: self._update_state(
                 parameter.id,
                 e.control.value if e.control.value else None,
             ),
@@ -401,7 +365,6 @@ class ParameterPanel:
     # ---------------------------------------------------------
 
     def _build_multi_choice(self, parameter: Parameter) -> ft.Control:
-        """构建多选参数控件 - 每个多选独立成组，使用网格布局。"""
         value = self._get_parameter_value(parameter)
 
         selected = set()
@@ -411,11 +374,11 @@ class ParameterPanel:
         checkboxes = []
 
         def on_checkbox_change(e: ft.Event[ft.Checkbox]):
-            # 获取同一组所有复选框的值
             parent = e.control.parent
             if parent and isinstance(parent, ft.GridView):
                 selected_values = [
-                    checkbox.label for checkbox in parent.controls 
+                    checkbox.label
+                    for checkbox in parent.controls
                     if isinstance(checkbox, ft.Checkbox) and checkbox.value
                 ]
                 self._update_state(parameter.id, selected_values)
@@ -428,17 +391,15 @@ class ParameterPanel:
             )
             checkboxes.append(checkbox)
 
-        # 使用 GridView 实现网格布局
         checkbox_grid = ft.GridView(
             controls=checkboxes,
-            max_extent=200,  # 每个复选框最大宽度
-            child_aspect_ratio=3.0,  # 宽高比
+            max_extent=200,
+            child_aspect_ratio=3.0,
             spacing=1,
             run_spacing=1,
             expand=True,
         )
 
-        # 显示参数信息
         title = ft.Text(
             f"{parameter.label} *" if parameter.required else parameter.label,
             weight=ft.FontWeight.BOLD,
@@ -447,11 +408,13 @@ class ParameterPanel:
 
         controls = [title]
         if parameter.description:
-            controls.append(ft.Text(
-                parameter.description,
-                size=12,
-                color=ft.Colors.GREY_600,
-            ))
+            controls.append(
+                ft.Text(
+                    parameter.description,
+                    size=12,
+                    color=ft.Colors.GREY_600,
+                )
+            )
         controls.append(ft.Divider(height=1))
         controls.append(checkbox_grid)
 
@@ -471,7 +434,6 @@ class ParameterPanel:
     # ---------------------------------------------------------
 
     def _build_boolean(self, parameter: Parameter) -> ft.Control:
-        """构建布尔参数控件。"""
         value = self._get_parameter_value(parameter)
 
         switch = ft.Switch(
@@ -483,7 +445,6 @@ class ParameterPanel:
             ),
         )
 
-        # 返回包含开关的容器，稍后会被统一分组
         return ft.Container(
             content=ft.Column(
                 controls=[switch],
@@ -497,7 +458,6 @@ class ParameterPanel:
     # ---------------------------------------------------------
 
     def _wrap_parameter(self, parameter: Parameter, control: ft.Control) -> ft.Control:
-        """包装单个参数控件（非分组类型）。"""
         if parameter.required:
             title = ft.Text(
                 f"{parameter.label} *",
@@ -545,23 +505,15 @@ class ParameterPanel:
         )
 
     def _get_parameter_value(self, parameter: Parameter) -> object:
-        """
-        获取参数初始值。
-
-        优先使用当前 ToolState 中已经存在的值；
-        如果不存在，则使用 Parameter.default。
-        """
         tool_state = self.state.get_current_state()
 
         if tool_state is not None and tool_state.has(parameter.id):
             value = tool_state.get(parameter.id)
-
             logger.debug(
                 "使用 ToolState 参数值: id=%s value=%r",
                 parameter.id,
                 value,
             )
-
             return value
 
         logger.debug(
@@ -569,5 +521,4 @@ class ParameterPanel:
             parameter.id,
             parameter.default,
         )
-
         return parameter.default
