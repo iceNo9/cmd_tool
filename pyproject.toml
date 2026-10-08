@@ -9,3 +9,6 @@ dependencies = [
     "pyyaml>=6.0.3",
     "ruamel-yaml>=0.19.1",
 ]
+
+[tool.flet.flutter.pubspec.dependency_overrides]
+jni_flutter = "1.0.2"
