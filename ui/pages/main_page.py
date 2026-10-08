@@ -19,6 +19,7 @@ from ui.components.stacked_notifications.stacked_notifications import (
 )
 from utils.log import get_logger
 from utils.paths import get_log_dir
+from utils.version import get_app_version_display
 
 # 创建该模块专用的日志记录器
 logger = get_logger(
@@ -235,7 +236,7 @@ def build_main_page(page: ft.Page) -> None:
                 previous_selected_id in added_ids
                 or previous_selected_id in changed_ids
                 or previous_selected_id in removed_ids
-                # 或者选中工具本身发生了变化（比如从 A 切到 B）
+                # 选中工具本身发生了变化（比如删除后自动切换）
                 or previous_selected_id != state.selected_tool_id
             )
 
@@ -414,4 +415,28 @@ def build_main_page(page: ft.Page) -> None:
         spacing=5,
     )
 
-    page.add(main_layout)
+    # ====================================================================
+    # 底部版本状态栏
+    # ====================================================================
+
+    version_bar = ft.Container(
+        content=ft.Text(
+            f"CMD Tools {get_app_version_display()}",
+            size=11,
+            color=ft.Colors.GREY_600,
+        ),
+        padding=ft.Padding(10, 4, 10, 4),
+        alignment=ft.Alignment.CENTER_RIGHT,
+    )
+
+    page.add(
+        ft.Column(
+            controls=[
+                main_layout,
+                ft.Divider(height=1),
+                version_bar,
+            ],
+            expand=True,
+            spacing=0,
+        )
+    )
