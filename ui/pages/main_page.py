@@ -181,6 +181,9 @@ def build_main_page(page: ft.Page) -> None:
 
         返回是否检测到变更。
         """
+        # 保存变更前的选中工具，用于判断 UI 是否需要刷新
+        previous_selected_id = state.selected_tool_id
+
         paths = discover_plugins()
         new_manifests = parse_manifests(paths)
 
@@ -224,13 +227,16 @@ def build_main_page(page: ft.Page) -> None:
         if added_manifests or removed_ids or changed_manifests:
             tool_panel.refresh()
 
-            # 修 bug：用 id 集合判断，而不是 Manifest 对象
             changed_ids = {m.metadata.id for m in changed_manifests}
 
+            # 用"变更前"的 selected_tool_id 判断，
+            # 而不是变更后的（变更后可能已经被 remove_plugins 改掉了）
             selected_affected = (
-                state.selected_tool_id in added_ids
-                or state.selected_tool_id in changed_ids
-                or state.selected_tool_id in removed_ids
+                previous_selected_id in added_ids
+                or previous_selected_id in changed_ids
+                or previous_selected_id in removed_ids
+                # 或者选中工具本身发生了变化（比如从 A 切到 B）
+                or previous_selected_id != state.selected_tool_id
             )
 
             if selected_affected:
